@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Dart Score Keeper</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f232c; --line:#2b303b;
+    --txt:#e8ecf3; --muted:#98a2b3; --accent:#4f9dff; --good:#2e7d32; --bad:#c62828;
+    --gold:#e8b84b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  header{
+    display:flex; align-items:center; gap:12px; padding:12px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5;
+  }
+  header h1{font-size:18px; margin:0; letter-spacing:.5px}
+  header .grow{flex:1}
+  button{
+    font:inherit; color:var(--txt); background:var(--panel2); border:1px solid var(--line);
+    padding:9px 14px; border-radius:9px; cursor:pointer;
+  }
+  button:hover{border-color:var(--accent)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#08111f; font-weight:600}
+  button.ghost{background:transparent}
+  button.danger{border-color:var(--bad); color:#ff8a8a}
+  button.small{padding:6px 10px; font-size:13px}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  .toggle{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted)}
+  input[type=text],input[type=number],select{
+    font:inherit; color:var(--txt); background:var(--panel2); border:1px solid var(--line);
+    padding:9px 11px; border-radius:9px;
+  }
+  input[type=text]{width:180px}
+  label.opt{display:flex; align-items:center; gap:8px; padding:6px 0}
+  main{padding:18px; max-width:1200px; margin:0 auto}
+
+  /* SETUP */
+  .setup{display:grid; gap:18px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px}
+  .card h2{margin:0 0 12px; font-size:16px}
+  .row{display:flex; flex-wrap:wrap; gap:12px; align-items:center}
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .seg button{border:0; border-right:1px solid var(--line); border-radius:0; background:transparent}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--accent); color:#08111f; font-weight:600}
+  .tbtn.on{background:var(--accent); border-color:var(--accent); color:#08111f; font-weight:600}
+  .players-list{display:grid; gap:8px; margin:10px 0}
+  .player-row{display:flex; gap:8px; align-items:center}
+  .player-row .idx{width:22px; color:var(--muted); text-align:right}
+  .hint{color:var(--muted); font-size:13px}
+  .opts-block{border-top:1px dashed var(--line); margin-top:12px; padding-top:12px}
+
+  /* GAME */
+  .game{display:grid; grid-template-columns:minmax(320px,1fr) minmax(300px,420px); gap:20px; align-items:start}
+  .board-wrap{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; display:grid; gap:12px}
+  svg.board{width:100%; height:auto; display:block; touch-action:none; cursor:crosshair}
+  .board-foot{display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center}
+  .side{display:grid; gap:14px}
+  .turnbar{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; display:grid; gap:10px}
+  .turnbar .who{display:flex; align-items:center; justify-content:space-between}
+  .turnbar .who .name{font-size:20px; font-weight:700}
+  .darts{display:flex; gap:8px}
+  .dart-slot{
+    flex:1; text-align:center; padding:10px 6px; border:1px dashed var(--line); border-radius:10px;
+    background:var(--panel2); font-weight:600; min-height:44px; display:flex; align-items:center; justify-content:center;
+  }
+  .dart-slot.filled{border-style:solid; border-color:var(--accent)}
+  .turn-total{font-size:13px; color:var(--muted); text-align:center}
+  .banner{padding:8px 12px; border-radius:10px; font-weight:700; text-align:center}
+  .banner.bust{background:rgba(198,40,40,.18); color:#ff9a9a; border:1px solid var(--bad)}
+  .banner.win{background:rgba(232,184,75,.16); color:var(--gold); border:1px solid var(--gold)}
+  .banner.info{background:var(--panel2); color:var(--muted)}
+  .controls{display:flex; gap:8px}
+  .controls button{flex:1}
+
+  /* X01 cards */
+  .pcards{display:grid; gap:10px}
+  .pcard{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:grid; gap:4px}
+  .pcard.active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset}
+  .pcard .top{display:flex; justify-content:space-between; align-items:baseline}
+  .pcard .pname{font-weight:700}
+  .pcard .rem{font-size:34px; font-weight:800; line-height:1}
+  .pcard .meta{display:flex; gap:14px; font-size:12px; color:var(--muted)}
+  .pcard .checkout{font-size:13px; color:var(--gold); min-height:18px}
+  .tagpill{font-size:11px; padding:2px 7px; border-radius:20px; background:var(--panel2); color:var(--muted)}
+
+  /* Cricket grid */
+  .cricket{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; overflow-x:auto}
+  table.crk{border-collapse:collapse; width:100%; font-size:15px}
+  table.crk th,table.crk td{padding:8px 6px; text-align:center; border-bottom:1px solid var(--line)}
+  table.crk th{color:var(--muted); font-weight:600}
+  table.crk td.num{color:var(--muted); font-weight:700}
+  table.crk td.active{background:rgba(79,157,255,.10)}
+  table.crk .marks{font-size:18px; letter-spacing:2px; min-width:34px}
+  table.crk .closed{color:var(--muted); opacity:.55}
+  table.crk tr.scorerow td{font-weight:800; font-size:18px; border-bottom:0; padding-top:10px}
+  table.crk th.active{color:var(--accent)}
+
+  /* Modal */
+  .modal{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:20; padding:18px}
+  .modal.open{display:flex}
+  .modal .box{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; max-width:720px; width:100%; max-height:85vh; overflow:auto}
+  .modal h2{margin-top:0}
+  table.stats{border-collapse:collapse; width:100%; font-size:14px; margin-top:8px}
+  table.stats th,table.stats td{padding:7px 8px; border-bottom:1px solid var(--line); text-align:left}
+  table.stats th{color:var(--muted)}
+  .hist-item{border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; font-size:13px}
+  .hist-item .h{display:flex; justify-content:space-between; color:var(--muted)}
+  .win-name{color:var(--gold); font-weight:700}
+
+  .rules{font-size:14px; line-height:1.55}
+  .rules h3{margin:20px 0 6px; font-size:16px; color:var(--accent)}
+  .rules h4{margin:14px 0 4px; font-size:14px; color:var(--gold)}
+  .rules p{margin:6px 0; color:#d3d9e3}
+  .rules ul{margin:6px 0 6px; padding-left:20px}
+  .rules li{margin:5px 0; color:#d3d9e3}
+  .rules b{color:var(--txt)}
+  .rules .tip{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; color:var(--muted); font-size:13px}
+
+  /* Big-screen mode */
+  body.big main{max-width:100%}
+  body.big .pcard .rem{font-size:64px}
+  body.big .pcard .pname{font-size:24px}
+  body.big table.crk{font-size:22px}
+  body.big table.crk .marks{font-size:26px}
+  body.big .turnbar .who .name{font-size:28px}
+  body.big .dart-slot{font-size:20px; min-height:60px}
+
+  @media (max-width:820px){
+    .game{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎯 Dart Score Keeper</h1>
+  <div class="grow"></div>
+  <button class="ghost small" id="btnNew">New Game</button>
+  <button class="ghost small" id="btnRules">Rules</button>
+  <button class="ghost small" id="btnStats">Stats</button>
+  <label class="toggle"><input type="checkbox" id="chkBig"> Big screen</label>
+  <label class="toggle"><input type="checkbox" id="chkSound" checked> Sound</label>
+</header>
+<main id="main"></main>
+
+<div class="modal" id="rulesModal">
+  <div class="box">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">How to play</h2>
+      <button class="small" onclick="closeRules()">Close</button>
+    </div>
+    <div class="rules">
+      <h3>The basics of a turn</h3>
+      <p>Play goes in the order players are listed. On your turn you throw <b>3 darts</b>, then it passes to the next player. Click where each dart lands on the board and the score updates automatically. Use <b>Undo</b> to take back a misclick, or <b>Miss / outside</b> for a dart that hit no scoring area.</p>
+      <p>Where a dart lands decides its value:</p>
+      <ul>
+        <li><b>Big single areas</b> — the number's face value (e.g. the 20 wedge = 20).</li>
+        <li><b>Thin outer ring (double ring)</b> — <b>2×</b> the number (double 20 = 40).</li>
+        <li><b>Thin middle ring (triple ring)</b> — <b>3×</b> the number (triple 20 = 60, the highest single-dart score).</li>
+        <li><b>Green outer bull</b> = <b>25</b>. <b>Red inner bull (bullseye)</b> = <b>50</b> (this counts as a double).</li>
+      </ul>
+
+      <h3>X01 (301 / 501 / 701 / 1001)</h3>
+      <p>Everyone starts on the same number (501 is the classic). You <b>subtract</b> what you score each dart, racing to land on <b>exactly zero</b>. First to zero wins.</p>
+      <p><b>Bust:</b> if a dart would take you below zero — or leave you unable to finish under the chosen rule — that whole turn is cancelled and your score goes back to where it was when the turn started.</p>
+      <p class="tip">The board shows a suggested checkout (e.g. “Checkout: T20 D20”) when you’re low enough to finish — a shortcut for what to aim at.</p>
+
+      <h4>The finish (out) rules — how you're allowed to reach zero</h4>
+      <ul>
+        <li><b>Double out</b> — your <i>last</i> dart must be a <b>double</b> (the thin outer ring) or the <b>bullseye</b> (50, which counts as a double). This is the standard tournament rule. Because of it you can never win from a score of 1 (there's no way to finish), so being left on 1 is a bust.</li>
+        <li><b>Master out</b> — your last dart can be a <b>double or a triple</b> (or the bullseye). A bit easier than double out.</li>
+        <li><b>Straight out</b> — your last dart can be <b>anything</b> that brings you to exactly zero, including a plain single. The simplest rule and the friendliest for beginners.</li>
+        <li><b>Double in</b> (optional add-on) — your scoring doesn't start until you first hit a <b>double</b>. Darts thrown before that count as zero. It makes the opening harder; leave it off while you're learning.</li>
+      </ul>
+
+      <h3>Cricket</h3>
+      <p>Only <b>7 numbers matter: 20, 19, 18, 17, 16, 15, and the bull</b>. The rest of the board does nothing. Your goal is to “close” each of those numbers by hitting it <b>3 times</b>, and (in most variants) to score points along the way.</p>
+      <p>Each hit counts as marks — a single = 1 mark, a double = 2, a triple = 3. Three marks closes a number. On the scoreboard: <b>/</b> = 1 mark, <b>X</b> = 2 marks, <b>Ⓧ</b> = closed.</p>
+      <p>Once <b>you</b> have closed a number, any extra hits on it score its value as <b>points</b> — but only while an opponent still hasn't closed it. Once everyone has closed a number, it's dead and scores nothing.</p>
+
+      <h4>The Cricket variants</h4>
+      <ul>
+        <li><b>Standard</b> — those extra hits add points to <b>your own</b> score. To win you must close all 7 numbers <i>and</i> have the <b>highest</b> score. So you can't just close fast — you also can't fall behind on points.</li>
+        <li><b>Cut-throat</b> — the twist for 3+ players: extra points get dumped onto <b>everyone who hasn't closed that number yet</b>. Points are bad here. You win by closing everything with the <b>lowest</b> score. Great for ganging up on the leader.</li>
+        <li><b>No-score</b> — points are ignored entirely. First player to <b>close all 7 numbers</b> wins. The fastest, simplest version.</li>
+      </ul>
+
+      <h3>Training games</h3>
+      <p>Practice drills — play solo to build a skill, or add players to compete. Pick one under the <b>Training</b> game type.</p>
+      <ul>
+        <li><b>Around the Clock</b> — hit every number in order, 1 through 20 then the bull. Any part of the number counts (or switch to doubles-only for a real challenge). First to clear the board wins. The best drill for learning where everything is.</li>
+        <li><b>Count-Up</b> — throw for the highest total over a set number of rounds. No subtraction, no finishing rules — just aim at the biggest scores (the 20 up top, or the bull). A good warm-up.</li>
+        <li><b>Shanghai</b> — each round targets one number (round 1 = the 1, round 2 = the 2, and so on). Only that number scores. Hit its single, double <i>and</i> triple all in the same turn and you win instantly, whatever the score. Highest total wins otherwise.</li>
+        <li><b>Bob's 27</b> — doubles practice. You throw 3 darts at each double in turn (D1, D2 … D20, then the bullseye). Each hit adds the double's value; miss all three and you lose that value. Drop to zero and you're out. Doubles are how you finish an X01 game, so this pays off directly.</li>
+        <li><b>Halve It</b> — each round has a target (a number, any double, any triple, or the bull). Score on it and it adds to your total; score nothing that round and your total is <b>cut in half</b>. Rewards steady rounds and punishes misses.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="statsModal">
+  <div class="box">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Stats &amp; History</h2>
+      <button class="small" onclick="closeStats()">Close</button>
+    </div>
+    <div id="statsBody"></div>
+    <div style="margin-top:14px"><button class="danger small" onclick="clearHistory()">Clear all history</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================ Constants ============================ */
+const SEQ = [20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5]; // clockwise from top
+const CRK_NUMS = [20,19,18,17,16,15,25];
+const TRAIN_MODES = [
+  {key:'clock',    name:'Around the Clock', blurb:'Hit every number in order — 1 through 20, then the bull. First to clear the board wins. The best drill for learning where everything is.'},
+  {key:'countup',  name:'Count-Up',         blurb:'Throw for the highest total over a set number of rounds. No subtraction — pure aiming practice.'},
+  {key:'shanghai', name:'Shanghai',         blurb:'Each round targets one number (1, then 2, then 3…). Hit its single, double AND triple in one turn for an instant win.'},
+  {key:'bob27',    name:"Bob's 27",         blurb:'Doubles practice: 3 darts at each double D1→D20 then bull. Every hit adds its value; miss all three and you lose it. Hit 0 and you\'re out.'},
+  {key:'halveit',  name:'Halve It',         blurb:'Each round has a target. Score on it or your total is cut in half. Rewards consistency, punishes sloppy rounds.'}
+];
+const HALVE_TARGETS = [20,16,'D',14,'T',18,'B'];
+
+// SVG board geometry (viewBox 500x500, center 250,250)
+const CX=250, CY=250;
+const R_DB=13, R_SB=32, R_TIN=126, R_TOUT=140, R_DIN=200, R_DOUT=214, R_LABEL=232;
+
+/* ============================ Sound ============================ */
+let audioCtx=null;
+function beep(freq,dur,type,vol){
+  if(!state.sound) return;
+  try{
+    if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type=type||'sine'; o.frequency.value=freq;
+    g.gain.value=vol||0.05;
+    o.connect(g); g.connect(audioCtx.destination);
+    const t=audioCtx.currentTime;
+    o.start(t); g.gain.setValueAtTime(vol||0.05,t);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.08));
+    o.stop(t+(dur||0.08));
+  }catch(e){}
+}
+const sndHit =()=>beep(660,0.06,'triangle',0.05);
+const sndMiss=()=>beep(180,0.10,'sawtooth',0.05);
+const sndBust=()=>{beep(160,0.16,'square',0.06); setTimeout(()=>beep(120,0.20,'square',0.06),120);};
+const sndWin =()=>{[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.18,'triangle',0.06),i*120));};
+const sndClose=()=>beep(880,0.09,'sine',0.05);
+
+/* ============================ App state ============================ */
+const LS_GAME='dart_current_v1', LS_HIST='dart_history_v1', LS_PREF='dart_pref_v1';
+let state={ screen:'setup', sound:true, big:false };
+let game=null;          // active game object
+let undoStack=[];       // snapshots for undo
+
+/* ============================ Checkout solver ============================ */
+const OUTCOMES=(()=>{
+  const list=[];
+  for(let n=20;n>=1;n--) list.push({value:3*n,label:'T'+n,mult:3});      // triples high->low
+  list.push({value:25,label:'25',mult:1});                               // single bull
+  for(let n=20;n>=1;n--) list.push({value:n,label:''+n,mult:1});         // singles
+  for(let n=20;n>=1;n--) list.push({value:2*n,label:'D'+n,mult:2});      // doubles
+  list.push({value:50,label:'Bull',mult:2});                            // double bull
+  return list;
+})();
+function isFinisher(o,outRule){
+  if(outRule==='straight') return true;
+  if(outRule==='master')   return o.mult===2||o.mult===3;
+  return o.mult===2; // double (incl. double bull)
+}
+function _rec(rem,len,outRule){
+  if(len===1){
+    for(const o of OUTCOMES) if(o.value===rem && isFinisher(o,outRule)) return [o.label];
+    return null;
+  }
+  for(const o of OUTCOMES){
+    if(o.value<rem){
+      const rest=_rec(rem-o.value,len-1,outRule);
+      if(rest) return [o.label,...rest];
+    }
+  }
+  return null;
+}
+function checkout(rem,dartsLeft,outRule){
+  if(rem<=0) return null;
+  for(let len=1;len<=dartsLeft;len++){
+    const r=_rec(rem,len,outRule);
+    if(r) return r;
+  }
+  return null;
+}
+
+/* ============================ Board geometry / hit test ============================ */
+function pol(r,degCenter,cx,cy){
+  const a=degCenter*Math.PI/180;
+  return [cx+r*Math.cos(a), cy+r*Math.sin(a)];
+}
+function sector(a0,a1,ri,ro){
+  const [x1,y1]=pol(ri,a0,CX,CY), [x2,y2]=pol(ro,a0,CX,CY);
+  const [x3,y3]=pol(ro,a1,CX,CY), [x4,y4]=pol(ri,a1,CX,CY);
+  return `M${x1.toFixed(2)},${y1.toFixed(2)} L${x2.toFixed(2)},${y2.toFixed(2)} `+
+         `A${ro},${ro} 0 0 1 ${x3.toFixed(2)},${y3.toFixed(2)} `+
+         `L${x4.toFixed(2)},${y4.toFixed(2)} A${ri},${ri} 0 0 0 ${x1.toFixed(2)},${y1.toFixed(2)} Z`;
+}
+function buildBoardSVG(){
+  const BLACK='#15181d', CREAM='#e9dcae', RED='#c1362f', GREEN='#2f8f46';
+  let paths='';
+  for(let i=0;i<20;i++){
+    const center=-90+18*i, a0=center-9, a1=center+9;
+    const isBlack=(i%2===0);
+    const single=isBlack?BLACK:CREAM;
+    const ring=isBlack?RED:GREEN;
+    paths+=`<path d="${sector(a0,a1,R_SB,R_TIN)}" fill="${single}"/>`;      // inner single
+    paths+=`<path d="${sector(a0,a1,R_TIN,R_TOUT)}" fill="${ring}"/>`;       // triple
+    paths+=`<path d="${sector(a0,a1,R_TOUT,R_DIN)}" fill="${single}"/>`;     // outer single
+    paths+=`<path d="${sector(a0,a1,R_DIN,R_DOUT)}" fill="${ring}"/>`;       // double
+  }
+  // number labels
+  let labels='';
+  for(let i=0;i<20;i++){
+    const center=-90+18*i;
+    const [lx,ly]=pol(R_LABEL,center,CX,CY);
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+7).toFixed(1)}" text-anchor="middle" `+
+            `font-size="24" font-weight="700" fill="#f2f4f8">${SEQ[i]}</text>`;
+  }
+  return `
+  <svg class="board" id="board" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="250" cy="250" r="246" fill="#0b0d10"/>
+    <circle cx="250" cy="250" r="${R_DOUT+8}" fill="#000"/>
+    ${paths}
+    <circle cx="250" cy="250" r="${R_SB}" fill="#2f8f46"/>
+    <circle cx="250" cy="250" r="${R_DB}" fill="#c1362f"/>
+    ${labels}
+    <g id="markers"></g>
+  </svg>`;
+}
+// Convert click to a dart result
+function hitTest(px,py){
+  const dx=px-CX, dy=py-CY;
+  const r=Math.hypot(dx,dy);
+  if(r>R_DOUT) return {num:0,mult:0,points:0,label:'MISS'};
+  if(r<=R_DB)  return {num:25,mult:2,points:50,label:'Bull'};
+  if(r<=R_SB)  return {num:25,mult:1,points:25,label:'25'};
+  let ang=Math.atan2(dy,dx)*180/Math.PI;
+  let i=((Math.round((ang+90)/18)%20)+20)%20;
+  const num=SEQ[i];
+  if(r<=R_TIN)  return {num,mult:1,points:num,label:''+num};
+  if(r<=R_TOUT) return {num,mult:3,points:num*3,label:'T'+num};
+  if(r<=R_DIN)  return {num,mult:1,points:num,label:''+num};
+  return {num,mult:2,points:num*2,label:'D'+num};
+}
+
+/* ============================ Setup UI ============================ */
+let setupCfg=null;
+function defaultSetup(){
+  const pref=load(LS_PREF)||{};
+  return {
+    type:'x01',
+    players:(pref.players&&pref.players.length?pref.players.slice():['Player 1','Player 2']),
+    x01:{ start:501, doubleIn:false, outRule:'double' },
+    cricket:{ variant:'standard' },
+    training:{ mode:'clock', clockRequire:'any', countupRounds:8, shanghaiRounds:7 }
+  };
+}
+function renderSetup(){
+  if(!setupCfg) setupCfg=defaultSetup();
+  const c=setupCfg;
+  const main=document.getElementById('main');
+  const segBtn=(field,val,cur,txt)=>`<button class="${cur===val?'on':''}" data-seg="${field}" data-val="${val}">${txt}</button>`;
+  main.innerHTML=`
+  <div class="setup">
+    <div class="card">
+      <h2>Game type</h2>
+      <div class="seg">
+        ${segBtn('type','x01',c.type,'X01')}
+        ${segBtn('type','cricket',c.type,'Cricket')}
+        ${segBtn('type','training',c.type,'Training')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Players</h2>
+      <div class="players-list" id="playersList"></div>
+      <div class="row">
+        <button class="small" id="addPlayer">+ Add player</button>
+        <span class="hint">2&ndash;8 players. Order top to bottom is throw order.</span>
+      </div>
+    </div>
+
+    <div class="card" id="optCard"></div>
+
+    <div class="row">
+      <button class="primary" id="startBtn" style="font-size:16px;padding:12px 22px">Start game</button>
+    </div>
+  </div>`;
+
+  // players
+  const pl=document.getElementById('playersList');
+  pl.innerHTML=c.players.map((n,i)=>`
+    <div class="player-row">
+      <span class="idx">${i+1}</span>
+      <input type="text" data-pi="${i}" value="${escapeHtml(n)}" placeholder="Name">
+      <button class="small danger" data-del="${i}" ${c.players.length<=2?'disabled':''}>✕</button>
+    </div>`).join('');
+
+  renderOptCard();
+
+  // events
+  main.querySelectorAll('[data-seg]').forEach(b=>b.onclick=()=>{
+    const f=b.getAttribute('data-seg'); const v=b.getAttribute('data-val');
+    if(f==='type'){ c.type=v; renderSetup(); }
+  });
+  pl.querySelectorAll('input[data-pi]').forEach(inp=>inp.oninput=()=>{ c.players[+inp.getAttribute('data-pi')]=inp.value; });
+  pl.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ c.players.splice(+b.getAttribute('data-del'),1); renderSetup(); });
+  document.getElementById('addPlayer').onclick=()=>{
+    if(c.players.length<8){ c.players.push('Player '+(c.players.length+1)); renderSetup(); }
+  };
+  document.getElementById('startBtn').onclick=startGame;
+}
+function renderOptCard(){
+  const c=setupCfg, card=document.getElementById('optCard');
+  const seg=(field,val,cur,txt,scope)=>`<button class="${cur===val?'on':''}" data-opt="${scope}.${field}" data-val="${val}">${txt}</button>`;
+  if(c.type==='x01'){
+    const x=c.x01;
+    card.innerHTML=`
+      <h2>X01 options</h2>
+      <div class="row"><span style="width:110px;color:var(--muted)">Starting score</span>
+        <div class="seg">
+          ${seg('start',301,x.start,'301','x01')}
+          ${seg('start',501,x.start,'501','x01')}
+          ${seg('start',701,x.start,'701','x01')}
+          ${seg('start',1001,x.start,'1001','x01')}
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px"><span style="width:110px;color:var(--muted)">Finish (out)</span>
+        <div class="seg">
+          ${seg('outRule','double',x.outRule,'Double out','x01')}
+          ${seg('outRule','master',x.outRule,'Master out','x01')}
+          ${seg('outRule','straight',x.outRule,'Straight out','x01')}
+        </div>
+      </div>
+      <div class="opts-block">
+        <label class="opt"><input type="checkbox" id="doubleIn" ${x.doubleIn?'checked':''}> Double-in (must hit a double to start scoring)</label>
+        <div class="hint">Double out = finish on a double or the bull. Master out = finish on any double or triple. Straight out = finish on anything.</div>
+      </div>`;
+  }else if(c.type==='cricket'){
+    const k=c.cricket;
+    card.innerHTML=`
+      <h2>Cricket options</h2>
+      <div class="row"><span style="width:80px;color:var(--muted)">Variant</span>
+        <div class="seg">
+          ${seg('variant','standard',k.variant,'Standard','cricket')}
+          ${seg('variant','cutthroat',k.variant,'Cut-throat','cricket')}
+          ${seg('variant','noscore',k.variant,'No-score','cricket')}
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        Close 15&ndash;20 and the bull (3 marks each). <b>Standard:</b> score points on numbers you've closed that others haven't — highest score wins.
+        <b>Cut-throat:</b> those points are added to opponents instead — lowest score wins.
+        <b>No-score:</b> first to close everything wins.
+      </div>`;
+  }else{
+    const t=c.training;
+    const modeBtns=TRAIN_MODES.map(m=>`<button class="tbtn ${t.mode===m.key?'on':''}" data-tmode="${m.key}">${m.name}</button>`).join('');
+    let sub='';
+    if(t.mode==='clock'){
+      sub=`<div class="row" style="margin-top:12px"><span style="width:90px;color:var(--muted)">Must hit</span>
+        <div class="seg">
+          <button class="${t.clockRequire==='any'?'on':''}" data-opt="training.clockRequire" data-val="any">Any hit</button>
+          <button class="${t.clockRequire==='double'?'on':''}" data-opt="training.clockRequire" data-val="double">Doubles only</button>
+        </div></div>`;
+    }else if(t.mode==='countup'){
+      sub=`<div class="row" style="margin-top:12px"><span style="width:90px;color:var(--muted)">Rounds</span>
+        <div class="seg">${[5,8,10,15].map(r=>`<button class="${t.countupRounds===r?'on':''}" data-opt="training.countupRounds" data-val="${r}">${r}</button>`).join('')}</div></div>`;
+    }else if(t.mode==='shanghai'){
+      sub=`<div class="row" style="margin-top:12px"><span style="width:90px;color:var(--muted)">Numbers</span>
+        <div class="seg">${[7,10,20].map(r=>`<button class="${t.shanghaiRounds===r?'on':''}" data-opt="training.shanghaiRounds" data-val="${r}">1&ndash;${r}</button>`).join('')}</div></div>`;
+    }
+    const blurb=(TRAIN_MODES.find(m=>m.key===t.mode)||{}).blurb||'';
+    card.innerHTML=`<h2>Training game</h2>
+      <div class="row" style="gap:8px">${modeBtns}</div>
+      ${sub}
+      <div class="hint" style="margin-top:12px">${blurb} Play solo to practice, or add players to compete.</div>`;
+  }
+  card.querySelectorAll('[data-opt]').forEach(b=>b.onclick=()=>{
+    const [scope,field]=b.getAttribute('data-opt').split('.');
+    let v=b.getAttribute('data-val'); if(v==='true')v=true; else if(v==='false')v=false; else if(!isNaN(+v))v=+v;
+    setupCfg[scope][field]=v; renderOptCard();
+  });
+  card.querySelectorAll('[data-tmode]').forEach(b=>b.onclick=()=>{ setupCfg.training.mode=b.getAttribute('data-tmode'); renderOptCard(); });
+  const di=document.getElementById('doubleIn');
+  if(di) di.onchange=()=>{ setupCfg.x01.doubleIn=di.checked; };
+}
+
+/* ============================ Start / build game ============================ */
+function startGame(){
+  const c=setupCfg;
+  const names=c.players.map((n,i)=>(n&&n.trim())?n.trim():('Player '+(i+1)));
+  save(LS_PREF,{players:names});
+  if(c.type==='x01') game=newX01(names,c.x01);
+  else if(c.type==='cricket') game=newCricket(names,c.cricket);
+  else               game=newTraining(names,c.training);
+  undoStack=[];
+  state.screen='game';
+  persist();
+  enterGame();
+}
+function newX01(names,opt){
+  const g={ type:'x01', config:{...opt}, current:0, dartsThisTurn:0,
+    turnDarts:[], turnStartRem:opt.start, awaitingNext:false, finished:false, winner:null,
+    lastEvent:null, markers:[], ts:Date.now(),
+    players:names.map(n=>({ name:n, remaining:opt.start, opened:!opt.doubleIn,
+      darts:0, points:0, turnPoints:0, checkouts:0, checkoutChances:0, highCheckout:0 }))
+  };
+  g.players[0]._chanceCounted=false;
+  markChanceX01(g);
+  return g;
+}
+function newCricket(names,opt){
+  const g={ type:'cricket', config:{...opt}, current:0, dartsThisTurn:0,
+    turnDarts:[], awaitingNext:false, finished:false, winner:null,
+    lastEvent:null, markers:[], ts:Date.now(),
+    players:names.map(n=>{ const marks={}; CRK_NUMS.forEach(x=>marks[x]=0);
+      return { name:n, marks, score:0, darts:0, totalMarks:0 }; })
+  };
+  return g;
+}
+function newTraining(names,tcfg){
+  const mode=tcfg.mode;
+  const g={ type:'training', mode, config:{...tcfg}, current:0, dartsThisTurn:0,
+    turnDarts:[], awaitingNext:false, finished:false, winner:null, lastEvent:null,
+    markers:[], ts:Date.now(), round:1, roundBased:false, maxRounds:0 };
+  if(mode==='clock'){
+    const seq=[]; for(let n=1;n<=20;n++) seq.push(n); seq.push(25);
+    g.players=names.map(n=>({ name:n, seq:seq.slice(), idx:0, darts:0, done:false }));
+  }else if(mode==='countup'){
+    g.roundBased=true; g.maxRounds=tcfg.countupRounds||8;
+    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+  }else if(mode==='shanghai'){
+    g.roundBased=true; g.maxRounds=tcfg.shanghaiRounds||7;
+    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+  }else if(mode==='bob27'){
+    g.roundBased=true; g.maxRounds=21;
+    g.players=names.map(n=>({ name:n, score:27, darts:0, out:false }));
+  }else if(mode==='halveit'){
+    g.targets=HALVE_TARGETS.slice(); g.roundBased=true; g.maxRounds=g.targets.length;
+    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+  }
+  return g;
+}
+
+/* ============================ Game UI shell ============================ */
+function enterGame(){
+  const main=document.getElementById('main');
+  main.innerHTML=`
+    <div class="game">
+      <div class="board-wrap">
+        ${buildBoardSVG()}
+        <div class="board-foot">
+          <button id="btnMiss">Miss / outside</button>
+          <button id="btnUndo">↶ Undo dart</button>
+          <button id="btnNext" class="primary">Next player →</button>
+        </div>
+      </div>
+      <div class="side" id="side"></div>
+    </div>`;
+  const board=document.getElementById('board');
+  board.addEventListener('pointerdown',onBoardClick);
+  document.getElementById('btnMiss').onclick=()=>registerDart({num:0,mult:0,points:0,label:'MISS'});
+  document.getElementById('btnUndo').onclick=undo;
+  document.getElementById('btnNext').onclick=nextPlayer;
+  updateUI();
+}
+function onBoardClick(e){
+  if(!game||game.finished||game.awaitingNext) return;
+  const svg=document.getElementById('board');
+  const rect=svg.getBoundingClientRect();
+  const px=(e.clientX-rect.left)/rect.width*500;
+  const py=(e.clientY-rect.top)/rect.height*500;
+  const hit=hitTest(px,py);
+  hit._x=px; hit._y=py;
+  registerDart(hit);
+}
+
+/* ============================ Dart handling ============================ */
+function registerDart(hit){
+  if(!game||game.finished||game.awaitingNext) return;
+  undoStack.push(structuredClone(game));
+  if(undoStack.length>200) undoStack.shift();
+  game.lastEvent=null;
+  game.turnDarts.push(hit);
+  if(hit._x!=null) game.markers.push({x:hit._x,y:hit._y});
+  game.dartsThisTurn++;
+  if(game.type==='x01') applyX01(hit);
+  else if(game.type==='cricket') applyCricket(hit);
+  else                  applyTraining(hit);
+  persist();
+  updateUI();
+}
+function endTurnFlags(){ game.awaitingNext=true; }
+
+function applyX01(hit){
+  const p=game.players[game.current];
+  p.darts++;
+  // double-in gate
+  if(game.config.doubleIn && !p.opened){
+    if(hit.mult===2){ p.opened=true; }
+    else { sndMiss(); if(game.dartsThisTurn>=3) endTurnFlags(); return; }
+  }
+  const before=p.remaining;
+  const after=before-hit.points;
+  const rule=game.config.outRule;
+  let bust=false, win=false;
+  if(after<0) bust=true;
+  else if(after===0){
+    if(rule==='double') win=(hit.mult===2);
+    else if(rule==='master') win=(hit.mult===2||hit.mult===3);
+    else win=true;
+    if(!win) bust=true;
+  } else if(after===1 && rule!=='straight') bust=true;
+
+  if(bust){
+    p.points-=p.turnPoints; p.turnPoints=0;
+    p.remaining=game.turnStartRem;
+    game.lastEvent={type:'bust'};
+    sndBust();
+    endTurnFlags();
+    return;
+  }
+  // valid scoring dart
+  p.remaining=after; p.points+=hit.points; p.turnPoints+=hit.points;
+  if(hit.num===0) sndMiss(); else sndHit();
+
+  if(win){
+    p.checkouts++;
+    if(p.turnPoints>p.highCheckout) p.highCheckout=p.turnPoints;
+    finishGame(game.current);
+    sndWin();
+    return;
+  }
+  if(game.dartsThisTurn>=3) endTurnFlags();
+}
+
+function applyCricket(hit){
+  const p=game.players[game.current];
+  p.darts++;
+  const num=hit.num;
+  const scoring=CRK_NUMS.includes(num);
+  if(!scoring || hit.mult===0){ sndMiss(); if(game.dartsThisTurn>=3) endTurnFlags(); return; }
+  const m=hit.mult;
+  const cur=p.marks[num];
+  const need=Math.max(0,3-cur);
+  const extra=Math.max(0,m-need);
+  p.marks[num]=cur+m;
+  p.totalMarks+=m;
+  if(cur+m>=3 && cur<3) sndClose(); else sndHit();
+
+  if(extra>0 && game.config.variant!=='noscore'){
+    const val=(num===25?25:num);
+    const others=game.players.filter((_,i)=>i!==game.current);
+    if(game.config.variant==='standard'){
+      const anyOpen=others.some(o=>o.marks[num]<3);
+      if(anyOpen) p.score+=extra*val;
+    }else{ // cutthroat
+      others.forEach(o=>{ if(o.marks[num]<3) o.score+=extra*val; });
+    }
+  }
+  // win check
+  if(cricketAllClosed(p)){
+    let win=false;
+    const others=game.players.filter((_,i)=>i!==game.current);
+    if(game.config.variant==='noscore') win=true;
+    else if(game.config.variant==='standard') win=others.every(o=>p.score>=o.score);
+    else win=others.every(o=>p.score<=o.score); // cutthroat lowest
+    if(win){ finishGame(game.current); sndWin(); return; }
+  }
+  if(game.dartsThisTurn>=3) endTurnFlags();
+}
+function cricketAllClosed(p){ return CRK_NUMS.every(n=>p.marks[n]>=3); }
+
+/* ---- Training games ---- */
+function applyTraining(hit){
+  const g=game, p=g.players[g.current];
+  p.darts++;
+  if(g.dartsThisTurn===1){ p._tMults={}; p._tHits=0; p._tPts=0; } // per-turn reset on first dart
+  if(g.mode==='clock')         tClock(hit,p);
+  else if(g.mode==='countup')  tCountup(hit,p);
+  else if(g.mode==='shanghai') tShanghai(hit,p);
+  else if(g.mode==='bob27')    tBob27(hit,p);
+  else if(g.mode==='halveit')  tHalveit(hit,p);
+}
+function tClock(hit,p){
+  const target=p.seq[p.idx];
+  const req=game.config.clockRequire;
+  const ok = hit.num===target && (req==='any' || (req==='double' && hit.mult===2));
+  if(ok){ p.idx++; sndClose();
+    if(p.idx>=p.seq.length){ p.done=true; finishGame(game.current); sndWin(); return; }
+  } else sndMiss();
+  if(game.dartsThisTurn>=3) endTurnFlags();
+}
+function tCountup(hit,p){
+  p.score+=hit.points; if(hit.num) sndHit(); else sndMiss();
+  if(game.dartsThisTurn>=3) endTurnFlags();
+}
+function tShanghai(hit,p){
+  const t=game.round;
+  if(hit.num===t){ p.score+=hit.points; p._tMults[hit.mult]=true; sndHit();
+    if(p._tMults[1]&&p._tMults[2]&&p._tMults[3]){ p._shanghai=true; finishGame(game.current); sndWin(); return; }
+  } else sndMiss();
+  if(game.dartsThisTurn>=3) endTurnFlags();
+}
+function tBob27(hit,p){
+  if(!p.out){
+    const r=game.round, tgtNum=(r>20?25:r);
+    if(hit.num===tgtNum && hit.mult===2){ p._tHits++; sndHit(); } else sndMiss();
+  }
+  if(game.dartsThisTurn>=3){ resolveBob27(p); endTurnFlags(); }
+}
+function resolveBob27(p){
+  if(p.out) return;
+  const r=game.round, val=(r>20?50:2*r);
+  if(p._tHits>0) p.score+=p._tHits*val;
+  else { p.score-=val; if(p.score<=0){ p.score=0; p.out=true; } }
+}
+function halveDartPts(t,d){
+  if(t==='D') return d.mult===2?d.points:0;
+  if(t==='T') return d.mult===3?d.points:0;
+  if(t==='B') return d.num===25?d.points:0;
+  return d.num===t?d.points:0;
+}
+function tHalveit(hit,p){
+  const t=game.targets[game.round-1];
+  const pts=halveDartPts(t,hit);
+  if(pts>0){ p._tPts+=pts; sndHit(); } else sndMiss();
+  if(game.dartsThisTurn>=3){ resolveHalveit(p); endTurnFlags(); }
+}
+function resolveHalveit(p){
+  if(p._tPts>0) p.score+=p._tPts; else p.score=Math.floor(p.score/2);
+}
+function finalizeTraining(){
+  let best=-Infinity, idx=0;
+  game.players.forEach((p,i)=>{ if(p.score>best){ best=p.score; idx=i; } });
+  finishGame(idx);
+}
+function halveTargetLabel(t){
+  if(t==='D') return 'any double'; if(t==='T') return 'any triple'; if(t==='B') return 'the bull';
+  return 'number '+t;
+}
+
+function nextPlayer(){
+  if(!game||game.finished) return;
+  undoStack.push(structuredClone(game));
+  // if a training turn is ended early (before 3 darts), resolve its per-turn scoring now
+  if(game.type==='training' && !game.awaitingNext && game.dartsThisTurn>0){
+    const p=game.players[game.current];
+    if(game.mode==='bob27') resolveBob27(p);
+    else if(game.mode==='halveit') resolveHalveit(p);
+  }
+  const n=game.players.length;
+  const wrapped=((game.current+1)%n)===0;
+  game.current=(game.current+1)%n;
+  game.dartsThisTurn=0; game.turnDarts=[]; game.markers=[]; game.awaitingNext=false; game.lastEvent=null;
+  if(game.type==='x01'){
+    game.turnStartRem=game.players[game.current].remaining;
+    markChanceX01(game);
+  }
+  if(game.type==='training' && game.roundBased && wrapped){
+    game.round++;
+    if(game.round>game.maxRounds || (game.mode==='bob27' && game.players.every(p=>p.out))){
+      finalizeTraining(); persist(); updateUI(); return;
+    }
+  }
+  persist(); updateUI();
+}
+function markChanceX01(g){
+  const p=g.players[g.current];
+  if(p.opened && checkout(p.remaining,3,g.config.outRule)) p.checkoutChances++;
+}
+function undo(){
+  if(!undoStack.length) return;
+  game=undoStack.pop();
+  persist(); updateUI();
+}
+function finishGame(winnerIdx){
+  game.finished=true; game.winner=winnerIdx; game.awaitingNext=false;
+  recordHistory();
+  persist();
+}
+
+/* ============================ Rendering the side panel ============================ */
+function updateUI(){
+  if(!game) return;
+  renderMarkers();
+  const side=document.getElementById('side');
+  if(!side) return;
+  side.innerHTML = renderTurnbar() + (game.type==='x01'? renderX01() : game.type==='cricket'? renderCricket() : renderTraining());
+
+  // wire per-render controls that live in turnbar (none extra) — main buttons wired in enterGame
+  const btnUndo=document.getElementById('btnUndo');
+  const btnNext=document.getElementById('btnNext');
+  const btnMiss=document.getElementById('btnMiss');
+  if(btnUndo) btnUndo.disabled=!undoStack.length;
+  if(btnNext) btnNext.disabled=game.finished;
+  if(btnMiss) btnMiss.disabled=game.finished||game.awaitingNext;
+
+  const rb=document.getElementById('btnRematch');
+  if(rb) rb.onclick=rematch;
+}
+function renderMarkers(){
+  const g=document.getElementById('markers');
+  if(!g) return;
+  g.innerHTML=(game.markers||[]).map(m=>
+    `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="6" fill="#fff" stroke="#111" stroke-width="1.5" opacity="0.9"/>`
+  ).join('');
+}
+function renderTurnbar(){
+  const p=game.players[game.current];
+  const slots=[0,1,2].map(i=>{
+    const d=game.turnDarts[i];
+    return `<div class="dart-slot ${d?'filled':''}">${d?dartLabel(d):'&nbsp;'}</div>`;
+  }).join('');
+  const turnTotal=game.turnDarts.reduce((s,d)=>s+(d.points||(d.mult?d.num*d.mult:0)),0);
+  let banner='';
+  if(game.finished){
+    const w=game.players[game.winner];
+    let msg='🏆 '+escapeHtml(w.name)+' wins!';
+    if(game.type==='training' && game.players.length===1) msg=trainingSoloResult(w);
+    banner=`<div class="banner win">${msg}</div>
+            <div class="controls"><button id="btnRematch" class="primary">Play again</button></div>`;
+  }else if(game.lastEvent&&game.lastEvent.type==='bust'){
+    banner=`<div class="banner bust">BUST — no score this turn</div>`;
+  }else if(game.awaitingNext){
+    banner=`<div class="banner info">Turn complete — press “Next player”.</div>`;
+  }
+  return `
+  <div class="turnbar">
+    <div class="who">
+      <span class="name">${escapeHtml(p.name)}</span>
+      <span class="tagpill">${gameLabel()}</span>
+    </div>
+    <div class="darts">${slots}</div>
+    <div class="turn-total">This turn: <b>${game.type==='x01'?turnTotal:game.type==='cricket'?cricketTurnMarks()+' marks':trainingTurnInfo(turnTotal)}</b></div>
+    ${banner}
+  </div>`;
+}
+function cricketTurnMarks(){ return game.turnDarts.reduce((s,d)=>s+(CRK_NUMS.includes(d.num)?d.mult:0),0); }
+function trainingTurnInfo(turnTotal){
+  const g=game;
+  if(g.mode==='clock'){ const p=g.players[g.current]; return 'aiming at '+(p.done?'✓':(p.seq[p.idx]===25?'bull':p.seq[p.idx])); }
+  if(g.mode==='countup') return turnTotal+' pts';
+  if(g.mode==='shanghai'){ let s=0; g.turnDarts.forEach(d=>{ if(d.num===g.round) s+=d.points; }); return s+' pts'; }
+  if(g.mode==='bob27'){ const r=g.round,tn=(r>20?25:r); let h=0; g.turnDarts.forEach(d=>{ if(d.num===tn&&d.mult===2)h++; }); return h+' / 3 on target'; }
+  if(g.mode==='halveit'){ const t=g.targets[g.round-1]; let s=0; g.turnDarts.forEach(d=>{ s+=halveDartPts(t,d); }); return s+' pts'; }
+  return '';
+}
+function trainingSoloResult(w){
+  if(game.mode==='clock') return '✓ Board cleared in '+w.darts+' darts!';
+  return '✓ Final score: '+w.score;
+}
+function gameLabel(){
+  if(game.type==='x01'){
+    const r={double:'Double out',master:'Master out',straight:'Straight out'}[game.config.outRule];
+    return `${game.config.doubleIn?'DI ':''}${game.players[0].remaining!=null?'':''}${startScoreOf()} · ${r}`;
+  }
+  if(game.type==='training'){ const m=TRAIN_MODES.find(x=>x.key===game.mode); return m?m.name:'Training'; }
+  return {standard:'Standard Cricket',cutthroat:'Cut-throat',noscore:'No-score'}[game.config.variant];
+}
+function startScoreOf(){ return game.config.start; }
+function dartLabel(d){
+  if(d.label) return d.label==='MISS'?'—':d.label;
+  return d.mult?((d.mult===3?'T':d.mult===2?'D':'')+d.num):'—';
+}
+
+function renderX01(){
+  const rule=game.config.outRule;
+  return `<div class="pcards">`+ game.players.map((p,i)=>{
+    const active=(i===game.current&&!game.finished);
+    const avg=p.darts?((p.points/p.darts)*3):0;
+    let co='';
+    if(active){
+      if(game.config.doubleIn && !p.opened) co='Hit a double to start scoring';
+      else{
+        const dl=Math.max(1,3-game.dartsThisTurn);
+        const sug=checkout(p.remaining,dl,rule);
+        if(sug) co='Checkout: '+sug.join(' ');
+        else if(checkout(p.remaining,3,rule) && game.dartsThisTurn===0) co='Checkout: '+checkout(p.remaining,3,rule).join(' ');
+      }
+    }
+    return `<div class="pcard ${active?'active':''}">
+      <div class="top"><span class="pname">${escapeHtml(p.name)}${game.finished&&game.winner===i?' 🏆':''}</span>
+        ${game.config.doubleIn&&!p.opened?'<span class="tagpill">not in</span>':''}</div>
+      <div class="rem">${p.remaining}</div>
+      <div class="meta"><span>3-dart avg ${avg.toFixed(1)}</span><span>darts ${p.darts}</span><span>CO ${p.checkouts}</span></div>
+      <div class="checkout">${co}</div>
+    </div>`;
+  }).join('')+`</div>`;
+}
+
+function renderCricket(){
+  const players=game.players;
+  const markSym=n=>{ if(n<=0)return ''; if(n===1)return '/'; if(n===2)return 'X'; return 'Ⓧ'; };
+  let head=`<tr><th>#</th>`+players.map((p,i)=>
+    `<th class="${i===game.current&&!game.finished?'active':''}">${escapeHtml(p.name)}${game.finished&&game.winner===i?' 🏆':''}</th>`).join('')+`</tr>`;
+  let rows=CRK_NUMS.map(n=>{
+    const label=(n===25?'Bull':n);
+    return `<tr><td class="num">${label}</td>`+players.map((p,i)=>{
+      const mk=p.marks[n];
+      const closed=mk>=3;
+      const disp=closed?'Ⓧ':markSym(mk);
+      return `<td class="${i===game.current&&!game.finished?'active':''}"><span class="marks ${closed?'closed':''}">${disp||'&nbsp;'}</span></td>`;
+    }).join('')+`</tr>`;
+  }).join('');
+  let scoreRow='';
+  if(game.config.variant!=='noscore'){
+    scoreRow=`<tr class="scorerow"><td class="num">Pts</td>`+players.map(p=>`<td>${p.score}</td>`).join('')+`</tr>`;
+  }
+  return `<div class="cricket"><table class="crk">${head}${rows}${scoreRow}</table>
+    <div class="hint" style="margin-top:8px">Marks: / = 1, X = 2, Ⓧ = closed (3+). ${
+      game.config.variant==='noscore'?'First to close all 7 wins.':
+      game.config.variant==='cutthroat'?'Points go to opponents — lowest wins.':'Score on numbers you’ve closed that others haven’t — highest wins.'}</div></div>`;
+}
+
+function renderTraining(){
+  const g=game;
+  const cards=g.players.map((p,i)=>{
+    const active=(i===g.current&&!g.finished);
+    const win=g.finished&&g.winner===i;
+    let big='', sub='', meta='darts '+p.darts;
+    if(g.mode==='clock'){
+      big=p.done?'✓':(p.seq[p.idx]===25?'Bull':p.seq[p.idx]);
+      sub=p.done?('cleared in '+p.darts+' darts'):('target '+(p.idx+1)+' of '+p.seq.length);
+    }else if(g.mode==='countup'){
+      big=p.score; sub='round '+Math.min(g.round,g.maxRounds)+' of '+g.maxRounds;
+    }else if(g.mode==='shanghai'){
+      big=p.score; sub='round '+Math.min(g.round,g.maxRounds)+' of '+g.maxRounds;
+    }else if(g.mode==='bob27'){
+      big=p.out?'OUT':p.score; sub=(g.round>20?'target: Bull':'target: D'+g.round);
+    }else if(g.mode==='halveit'){
+      big=p.score; sub='target: '+halveTargetLabel(g.targets[Math.min(g.round,g.maxRounds)-1]);
+    }
+    return `<div class="pcard ${active?'active':''}">
+      <div class="top"><span class="pname">${escapeHtml(p.name)}${win?' 🏆':''}</span>
+        ${g.mode==='bob27'&&p.out?'<span class="tagpill">out</span>':''}</div>
+      <div class="rem">${big}</div>
+      <div class="meta"><span>${sub}</span><span>${meta}</span></div>
+    </div>`;
+  }).join('');
+  let txt='';
+  if(g.mode==='clock') txt='Hit each number in order: 1 → 20 → Bull. '+(g.config.clockRequire==='double'?'Doubles only.':'Any part of the number counts.')+' First to clear wins.';
+  else if(g.mode==='countup') txt='Score as many points as you can over '+g.maxRounds+' rounds. Aim for the 20 or the bull.';
+  else if(g.mode==='shanghai') txt='This round everyone throws at the '+g.round+'. Single + double + triple of it in one turn = instant win!';
+  else if(g.mode==='bob27') txt='3 darts at each double. Every hit adds its value; miss all three and you lose it. Reach 0 and you\'re out.';
+  else if(g.mode==='halveit') txt='Score on the round\'s target or your total is cut in half.';
+  return `<div class="pcards">${cards}</div><div class="hint" style="margin-top:8px">${txt}</div>`;
+}
+
+function rematch(){
+  const names=game.players.map(p=>p.name);
+  if(game.type==='x01') game=newX01(names,game.config);
+  else if(game.type==='cricket') game=newCricket(names,game.config);
+  else                  game=newTraining(names,game.config);
+  undoStack=[];
+  persist(); enterGame();
+}
+
+/* ============================ History / stats ============================ */
+function recordHistory(){
+  const rec={ ts:Date.now(), type:game.type, winner:game.players[game.winner].name,
+    config:{...game.config}, players:{} };
+  if(game.type==='training') rec.mode=game.mode;
+  game.players.forEach(p=>{
+    if(game.type==='x01'){
+      rec.players[p.name]={ darts:p.darts, points:p.points,
+        avg:p.darts?((p.points/p.darts)*3):0, checkouts:p.checkouts,
+        checkoutChances:p.checkoutChances, highCheckout:p.highCheckout };
+    }else if(game.type==='cricket'){
+      rec.players[p.name]={ darts:p.darts, marks:p.totalMarks, score:p.score,
+        mpr:p.darts?((p.totalMarks/p.darts)*3):0 };
+    }else{
+      rec.players[p.name]={ darts:p.darts, score:(game.mode==='clock'?(p.done?p.darts:null):p.score) };
+    }
+  });
+  const hist=load(LS_HIST)||[];
+  hist.unshift(rec);
+  if(hist.length>200) hist.length=200;
+  save(LS_HIST,hist);
+}
+function openStats(){
+  const hist=load(LS_HIST)||[];
+  const body=document.getElementById('statsBody');
+  // aggregate per player
+  const agg={};
+  hist.forEach(h=>{
+    Object.entries(h.players).forEach(([name,s])=>{
+      const a=agg[name]||(agg[name]={games:0,wins:0,darts:0,points:0,marks:0,checkouts:0,chances:0,high:0,x01:false,crk:false});
+      a.games++; if(h.winner===name) a.wins++; a.darts+=s.darts||0;
+      if(h.type==='x01'){ a.x01=true; a.points+=s.points||0; a.checkouts+=s.checkouts||0; a.chances+=s.checkoutChances||0; a.high=Math.max(a.high,s.highCheckout||0); }
+      else if(h.type==='cricket'){ a.crk=true; a.marks+=s.marks||0; }
+    });
+  });
+  let aggRows=Object.entries(agg).sort((a,b)=>b[1].wins-a[1].wins).map(([name,a])=>{
+    const avg=a.points&&a.darts?((a.points/a.darts)*3).toFixed(1):'—';
+    const mpr=a.marks&&a.darts?((a.marks/a.darts)*3).toFixed(2):'—';
+    const co=a.chances?Math.round(100*a.checkouts/a.chances)+'%':'—';
+    return `<tr><td>${escapeHtml(name)}</td><td>${a.games}</td><td>${a.wins}</td>
+      <td>${avg}</td><td>${co}</td><td>${a.high||'—'}</td><td>${mpr}</td></tr>`;
+  }).join('');
+  if(!aggRows) aggRows=`<tr><td colspan="7" class="hint">No games recorded yet.</td></tr>`;
+
+  const histHtml=hist.slice(0,20).map(h=>{
+    const when=new Date(h.ts).toLocaleString();
+    const type=h.type==='x01'?`X01 ${h.config.start} · ${({double:'double',master:'master',straight:'straight'})[h.config.outRule]} out${h.config.doubleIn?' · DI':''}`
+      :h.type==='cricket'?`Cricket · ${({standard:'standard',cutthroat:'cut-throat',noscore:'no-score'})[h.config.variant]}`
+      :`Training · ${((TRAIN_MODES.find(m=>m.key===h.mode)||{}).name)||h.mode}`;
+    const detail=Object.entries(h.players).map(([n,s])=>{
+      if(h.type==='x01') return `${escapeHtml(n)} (avg ${(s.avg||0).toFixed(1)})`;
+      if(h.type==='cricket') return `${escapeHtml(n)} (${s.marks} marks${h.config.variant!=='noscore'?', '+s.score+' pts':''})`;
+      return `${escapeHtml(n)} (${s.score==null?'—':(h.mode==='clock'?s.score+' darts':s.score+' pts')})`;
+    }).join(' · ');
+    return `<div class="hist-item"><div class="h"><span>${type}</span><span>${when}</span></div>
+      <div style="margin-top:4px">Winner: <span class="win-name">${escapeHtml(h.winner)}</span></div>
+      <div class="hint" style="margin-top:2px">${detail}</div></div>`;
+  }).join('')||`<div class="hint">No history yet.</div>`;
+
+  body.innerHTML=`
+    <h3 style="margin:14px 0 4px">Lifetime by player</h3>
+    <table class="stats"><tr><th>Player</th><th>Games</th><th>Wins</th><th>X01 avg</th><th>CO%</th><th>High CO</th><th>MPR</th></tr>${aggRows}</table>
+    <h3 style="margin:18px 0 4px">Recent games</h3>
+    ${histHtml}`;
+  document.getElementById('statsModal').classList.add('open');
+}
+function closeStats(){ document.getElementById('statsModal').classList.remove('open'); }
+function clearHistory(){ if(confirm('Delete all saved game history and stats?')){ localStorage.removeItem(LS_HIST); openStats(); } }
+
+/* ============================ Persistence ============================ */
+function persist(){
+  if(game) save(LS_GAME,{game,screen:state.screen});
+}
+function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+function load(k){ try{ const s=localStorage.getItem(k); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function escapeHtml(s){ return (''+s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ============================ Global controls ============================ */
+document.getElementById('btnNew').onclick=()=>{
+  if(game && !game.finished && !confirm('Start a new game? Current game will be discarded.')) return;
+  localStorage.removeItem(LS_GAME);
+  game=null; undoStack=[]; state.screen='setup'; setupCfg=null; renderSetup();
+};
+document.getElementById('btnStats').onclick=openStats;
+document.getElementById('statsModal').onclick=e=>{ if(e.target.id==='statsModal') closeStats(); };
+document.getElementById('btnRules').onclick=openRules;
+document.getElementById('rulesModal').onclick=e=>{ if(e.target.id==='rulesModal') closeRules(); };
+function openRules(){ document.getElementById('rulesModal').classList.add('open'); }
+function closeRules(){ document.getElementById('rulesModal').classList.remove('open'); }
+document.getElementById('chkBig').onchange=e=>{ state.big=e.target.checked; document.body.classList.toggle('big',state.big);
+  if(state.big && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
+  else if(!state.big && document.fullscreenElement) document.exitFullscreen().catch(()=>{}); saveState(); };
+document.getElementById('chkSound').onchange=e=>{ state.sound=e.target.checked; saveState(); };
+function saveState(){ save('dart_ui_v1',{sound:state.sound,big:state.big}); }
+
+/* ============================ Boot ============================ */
+(function boot(){
+  const ui=load('dart_ui_v1'); if(ui){ state.sound=ui.sound!==false; state.big=!!ui.big; }
+  document.getElementById('chkSound').checked=state.sound;
+  document.getElementById('chkBig').checked=state.big;
+  document.body.classList.toggle('big',state.big);
+
+  const saved=load(LS_GAME);
+  if(saved&&saved.game){ game=saved.game; state.screen='game'; enterGame(); }
+  else renderSetup();
+})();
+</script>
+</body>
+</html>
