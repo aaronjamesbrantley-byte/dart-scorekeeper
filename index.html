@@ -395,7 +395,7 @@ function renderSetup(){
       <div class="players-list" id="playersList"></div>
       <div class="row">
         <button class="small" id="addPlayer">+ Add player</button>
-        <span class="hint">2&ndash;8 players. Order top to bottom is throw order.</span>
+        <span class="hint">1&ndash;8 players (1 = solo practice). Order top to bottom is throw order.</span>
       </div>
     </div>
 
@@ -412,7 +412,7 @@ function renderSetup(){
     <div class="player-row">
       <span class="idx">${i+1}</span>
       <input type="text" data-pi="${i}" value="${escapeHtml(n)}" placeholder="Name">
-      <button class="small danger" data-del="${i}" ${c.players.length<=2?'disabled':''}>✕</button>
+      <button class="small danger" data-del="${i}" ${c.players.length<=1?'disabled':''}>✕</button>
     </div>`).join('');
 
   renderOptCard();
@@ -812,7 +812,7 @@ function updateUI(){
   const btnNext=document.getElementById('btnNext');
   const btnMiss=document.getElementById('btnMiss');
   if(btnUndo) btnUndo.disabled=!undoStack.length;
-  if(btnNext) btnNext.disabled=game.finished;
+  if(btnNext){ btnNext.disabled=game.finished; btnNext.textContent=(game.players.length===1?'Next turn →':'Next player →'); }
   if(btnMiss) btnMiss.disabled=game.finished||game.awaitingNext;
 
   const rb=document.getElementById('btnRematch');
@@ -836,7 +836,11 @@ function renderTurnbar(){
   if(game.finished){
     const w=game.players[game.winner];
     let msg='🏆 '+escapeHtml(w.name)+' wins!';
-    if(game.type==='training' && game.players.length===1) msg=trainingSoloResult(w);
+    if(game.players.length===1){
+      if(game.type==='training') msg=trainingSoloResult(w);
+      else if(game.type==='x01') msg='✓ Checked out in '+dartsWord(w.darts)+'!';
+      else if(game.type==='cricket') msg='✓ All closed in '+dartsWord(w.darts)+'!';
+    }
     banner=`<div class="banner win">${msg}</div>
             <div class="controls"><button id="btnRematch" class="primary">Play again</button></div>`;
   }else if(game.lastEvent&&game.lastEvent.type==='bust'){
@@ -866,7 +870,7 @@ function trainingTurnInfo(turnTotal){
   return '';
 }
 function trainingSoloResult(w){
-  if(game.mode==='clock') return '✓ Board cleared in '+w.darts+' darts!';
+  if(game.mode==='clock') return '✓ Board cleared in '+dartsWord(w.darts)+'!';
   return '✓ Final score: '+w.score;
 }
 function gameLabel(){
@@ -878,6 +882,7 @@ function gameLabel(){
   return {standard:'Standard Cricket',cutthroat:'Cut-throat',noscore:'No-score'}[game.config.variant];
 }
 function startScoreOf(){ return game.config.start; }
+function dartsWord(n){ return n+(n===1?' dart':' darts'); }
 function dartLabel(d){
   if(d.label) return d.label==='MISS'?'—':d.label;
   return d.mult?((d.mult===3?'T':d.mult===2?'D':'')+d.num):'—';
@@ -940,7 +945,7 @@ function renderTraining(){
     let big='', sub='', meta='darts '+p.darts;
     if(g.mode==='clock'){
       big=p.done?'✓':(p.seq[p.idx]===25?'Bull':p.seq[p.idx]);
-      sub=p.done?('cleared in '+p.darts+' darts'):('target '+(p.idx+1)+' of '+p.seq.length);
+      sub=p.done?('cleared in '+dartsWord(p.darts)):('target '+(p.idx+1)+' of '+p.seq.length);
     }else if(g.mode==='countup'){
       big=p.score; sub='round '+Math.min(g.round,g.maxRounds)+' of '+g.maxRounds;
     }else if(g.mode==='shanghai'){
