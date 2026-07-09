@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dart Cam — Setup &amp; Calibration</title>
+<style>
+  :root{ --bg:#0f1115; --panel:#171a21; --panel2:#1f232c; --line:#2b303b; --txt:#e8ecf3;
+    --muted:#98a2b3; --accent:#4f9dff; --good:#2e7d32; --bad:#c62828; --gold:#e8b84b; }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--txt);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+    display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:5}
+  header h1{font-size:17px; margin:0}
+  main{max-width:960px; margin:0 auto; padding:18px; display:grid; gap:16px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px}
+  button{font:inherit; color:var(--txt); background:var(--panel2); border:1px solid var(--line);
+    padding:10px 15px; border-radius:10px; cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#08111f; font-weight:600}
+  select{font:inherit; color:var(--txt); background:var(--panel2); border:1px solid var(--line);
+    padding:9px 11px; border-radius:10px; max-width:100%}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  .between{justify-content:space-between}
+  video{width:100%; border-radius:12px; background:#000; display:block}
+  .stagewrap{position:relative; display:inline-block; width:100%}
+  canvas#stage{width:100%; border-radius:12px; background:#000; display:block; cursor:crosshair; touch-action:none}
+  canvas#loupe{position:absolute; width:150px; height:150px; border:2px solid var(--accent);
+    border-radius:10px; pointer-events:none; display:none; background:#000; box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .hint{color:var(--muted); font-size:13px}
+  .stat{font-size:13px; color:var(--muted)}
+  .pill{font-size:12px; padding:3px 9px; border-radius:20px; background:var(--panel2); color:var(--muted)}
+  .ok{color:#7ee0a0} .warn{color:#ffcf6b} .err{color:#ff8a8a}
+  .big{font-size:22px; font-weight:800}
+  .steplbl{font-size:15px}
+  .steplbl b{color:var(--gold)}
+  .banner{padding:9px 12px; border-radius:10px; background:var(--panel2); font-size:14px}
+  a.dl{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎯 Dart Cam — Setup &amp; Calibration</h1>
+  <span class="pill" id="status">not started</span>
+</header>
+<main>
+  <!-- Step 1: camera -->
+  <div class="card">
+    <p class="hint" style="margin-top:0">Step 1 — enable the camera and pick the Sony (ZV-1F). When Chrome asks, choose <b>Allow</b>.</p>
+    <div class="row">
+      <button class="primary" id="startBtn">Enable camera</button>
+      <select id="camSelect" style="display:none"></select>
+      <button id="freezeBtn" disabled>📸 Capture &amp; calibrate</button>
+    </div>
+    <div class="stat" id="resStat" style="margin-top:10px"></div>
+    <video id="video" playsinline autoplay muted style="margin-top:12px"></video>
+  </div>
+
+  <!-- Step 2: calibration -->
+  <div class="card" id="calibCard" style="display:none">
+    <div class="row between" style="margin-bottom:10px">
+      <b>Step 2 — Calibration</b>
+      <div class="row">
+        <button id="recalibBtn">↻ Restart clicks</button>
+        <button id="backLiveBtn">← Back to live</button>
+      </div>
+    </div>
+    <div class="banner steplbl" id="stepMsg">Click the <b>centre of the bullseye</b>.</div>
+    <div class="stagewrap" style="margin-top:12px">
+      <canvas id="stage"></canvas>
+      <canvas id="loupe" width="150" height="150"></canvas>
+    </div>
+    <p class="hint" id="calibHint">Tip: a magnifier appears while you hover — line the crosshair up precisely, then click.</p>
+  </div>
+
+  <!-- Step 3: test -->
+  <div class="card" id="testCard" style="display:none">
+    <div class="row between">
+      <b>Step 3 — Test the map</b>
+      <span class="pill" id="lastHit">—</span>
+    </div>
+    <p class="hint">Calibration locked. The blue wireframe is where the app <i>thinks</i> the board is — it should sit right on top of the real one. Now <b>click anywhere on the board above</b> and it'll name the segment. If the wireframe is off, hit “Restart clicks”.</p>
+    <div class="big" id="testReadout" style="margin-top:4px">click the board to test</div>
+  </div>
+
+  <!-- Step 4: auto-detect -->
+  <div class="card" id="detCard" style="display:none">
+    <div class="row between" style="margin-bottom:8px">
+      <b>Step 4 — Auto-detect darts</b>
+      <div class="row">
+        <label class="hint"><input type="checkbox" id="sendGame"> send to game</label>
+        <button id="resetBase">Reset (darts pulled)</button>
+        <button class="primary" id="detBtn">Start detecting</button>
+      </div>
+    </div>
+    <div class="row" style="gap:18px; margin-bottom:6px">
+      <label class="hint" style="display:flex;align-items:center;gap:8px">Sensitivity
+        <input type="range" id="sens" min="10" max="80" value="28"></label>
+      <span class="pill" id="detState">off</span>
+      <span class="hint" id="detInfo"></span>
+    </div>
+    <canvas id="live" style="width:100%;border-radius:12px;background:#000;display:block;margin-top:6px"></canvas>
+    <div class="banner" id="confirmBox" style="display:none;margin-top:10px">
+      Detected <b id="detHit"></b> &nbsp;
+      <button class="primary" id="acceptHit">✓ Accept</button>
+      <button id="rejectHit">✗ Ignore</button>
+    </div>
+    <p class="hint">Keep out of the frame while a dart is in the air. When it lands and the picture settles, the gold cross marks where it read the tip. Tune <b>Sensitivity</b> so throws register but small flickers don't. Hit <b>Reset</b> after you pull the darts. Turn on <b>send to game</b> to push accepted darts into the scorer (open the game in another tab).</p>
+  </div>
+</main>
+
+<canvas id="snapCanvas" style="display:none"></canvas>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const SEQ=[20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5];
+// Standard board geometry in mm (radii from centre)
+const R={ dbull:6.35, sbull:15.9, tin:99, tout:107, din:162, dout:170 };
+// Calibration targets: click order + their true board-plane coords (x right, y DOWN; 20 at top)
+const TARGETS=[
+  {msg:'the <b>centre of the bullseye</b>', xy:[0,0]},
+  {msg:'the <b>OUTER edge of the double ring at the 20</b> (top of the board)', xy:[0,-R.dout]},
+  {msg:'the <b>OUTER edge of the double ring at the 6</b> (right side, 3 o’clock)', xy:[R.dout,0]},
+  {msg:'the <b>OUTER edge of the double ring at the 3</b> (bottom)', xy:[0,R.dout]},
+  {msg:'the <b>OUTER edge of the double ring at the 11</b> (left side, 9 o’clock)', xy:[-R.dout,0]}
+];
+
+const video=$('video'), camSelect=$('camSelect'), resStat=$('resStat'),
+      stage=$('stage'), sctx=stage.getContext('2d'), loupe=$('loupe'), lctx=loupe.getContext('2d'),
+      snap=$('snapCanvas'), status=$('status');
+let stream=null, frameBitmap=null;
+let mode='idle';            // idle | calibrating | ready
+let clicks=[];              // image-space calibration points
+let H=null, Hinv=null;      // image->board , board->image
+
+function setStatus(t,c){ status.textContent=t; status.className='pill '+(c||''); }
+
+/* ---------------- camera ---------------- */
+async function listCameras(){
+  const ds=await navigator.mediaDevices.enumerateDevices();
+  const cams=ds.filter(d=>d.kind==='videoinput');
+  camSelect.innerHTML=cams.map((c,i)=>`<option value="${c.deviceId}">${c.label||('Camera '+(i+1))}</option>`).join('');
+  camSelect.style.display=cams.length?'':'none';
+  const sony=cams.find(c=>/sony|zv|uvc|vendorid_1356|bus-powered/i.test(c.label));
+  if(sony) camSelect.value=sony.deviceId;
+  return cams;
+}
+async function startCam(deviceId){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+  stream=await navigator.mediaDevices.getUserMedia({ video: deviceId
+    ? {deviceId:{exact:deviceId}, width:{ideal:1920}, height:{ideal:1080}}
+    : {width:{ideal:1920}, height:{ideal:1080}}, audio:false });
+  video.srcObject=stream;
+  const tr=stream.getVideoTracks()[0], s=tr.getSettings();
+  resStat.innerHTML=`<span class="ok">● live</span> — ${tr.label||'camera'} · ${s.width}×${s.height} @ ${Math.round(s.frameRate||0)}fps`;
+  setStatus('live','ok'); $('freezeBtn').disabled=false;
+}
+$('startBtn').onclick=async()=>{
+  try{ setStatus('requesting…','warn');
+    stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    video.srcObject=stream; await listCameras(); await startCam(camSelect.value);
+    $('startBtn').textContent='Restart';
+  }catch(e){ setStatus('blocked','err'); resStat.innerHTML=`<span class="err">${e.name}: ${e.message}</span>`; }
+};
+camSelect.onchange=()=>startCam(camSelect.value).catch(e=>resStat.innerHTML=`<span class="err">${e.name}: ${e.message}</span>`);
+
+/* ---------------- capture & calibrate ---------------- */
+$('freezeBtn').onclick=()=>{
+  const w=video.videoWidth, h=video.videoHeight; if(!w) return;
+  snap.width=w; snap.height=h; snap.getContext('2d').drawImage(video,0,0,w,h);
+  stage.width=w; stage.height=h;
+  frameBitmap=snap;
+  $('calibCard').style.display='block';
+  startCalibration();
+  $('calibCard').scrollIntoView({behavior:'smooth'});
+};
+function startCalibration(){ mode='calibrating'; clicks=[]; H=Hinv=null; $('testCard').style.display='none';
+  setStatus('calibrating','warn'); drawStage(); promptStep(); }
+$('recalibBtn').onclick=startCalibration;
+$('backLiveBtn').onclick=()=>{ $('calibCard').style.display='none'; $('testCard').style.display='none'; setStatus('live','ok'); };
+
+function promptStep(){
+  if(clicks.length<TARGETS.length) $('stepMsg').innerHTML='Click '+TARGETS[clicks.length].msg+'.';
+  else $('stepMsg').innerHTML='<span class="ok">✓ Calibrated.</span> Check the wireframe below, then test it.';
+}
+function drawStage(){
+  sctx.drawImage(frameBitmap,0,0,stage.width,stage.height);
+  // draw existing calibration clicks
+  clicks.forEach((p,i)=>marker(sctx,p[0],p[1], i+ (mode==='calibrating'?0:0), '#4f9dff'));
+  if(mode==='ready' && Hinv) drawBoardOverlay();
+}
+function marker(ctx,x,y,idx,color){
+  ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-11,y); ctx.lineTo(x+11,y); ctx.moveTo(x,y-11); ctx.lineTo(x,y+11); ctx.stroke();
+  ctx.restore();
+}
+
+/* pointer → canvas pixel coords */
+function evtXY(e){
+  const r=stage.getBoundingClientRect();
+  return [ (e.clientX-r.left)/r.width*stage.width, (e.clientY-r.top)/r.height*stage.height ];
+}
+stage.addEventListener('pointermove',e=>{
+  if(mode==='idle') return;
+  const [x,y]=evtXY(e); showLoupe(e,x,y);
+});
+stage.addEventListener('pointerleave',()=>{ loupe.style.display='none'; });
+stage.addEventListener('pointerdown',e=>{
+  const [x,y]=evtXY(e);
+  if(mode==='calibrating'){
+    clicks.push([x,y]); drawStage();
+    if(clicks.length===TARGETS.length) finishCalibration();
+    else promptStep();
+  }else if(mode==='ready'){
+    testAt(x,y);
+  }
+});
+
+function showLoupe(e,x,y){
+  const Z=4, S=150, half=S/(2*Z);
+  loupe.style.display='block';
+  const wrap=stage.getBoundingClientRect();
+  let lx=e.clientX-wrap.left+16, ly=e.clientY-wrap.top+16;
+  if(lx> wrap.width-S) lx=e.clientX-wrap.left-S-16;
+  loupe.style.left=lx+'px'; loupe.style.top=ly+'px';
+  lctx.clearRect(0,0,S,S);
+  lctx.imageSmoothingEnabled=false;
+  lctx.drawImage(stage, x-half, y-half, half*2, half*2, 0,0,S,S);
+  lctx.strokeStyle='#ff5555'; lctx.lineWidth=1;
+  lctx.beginPath(); lctx.moveTo(S/2,0); lctx.lineTo(S/2,S); lctx.moveTo(0,S/2); lctx.lineTo(S,S/2); lctx.stroke();
+}
+
+/* ---------------- homography ---------------- */
+function finishCalibration(){
+  const src=clicks, dst=TARGETS.map(t=>t.xy);
+  H=homography(src,dst); Hinv=inv3(H);
+  mode='ready'; setStatus('ready','ok'); promptStep();
+  drawStage();
+  $('testCard').style.display='block';
+  $('detCard').style.display='block';
+  localStorage.setItem('dartcam_calib', JSON.stringify({clicks, w:stage.width, h:stage.height}));
+}
+function applyH(M,x,y){ const d=M[6]*x+M[7]*y+M[8]; return [(M[0]*x+M[1]*y+M[2])/d,(M[3]*x+M[4]*y+M[5])/d]; }
+// least-squares homography src(img)->dst(board), h8=1
+function homography(src,dst){
+  const A=[], b=[];
+  for(let i=0;i<src.length;i++){
+    const [x,y]=src[i], [X,Y]=dst[i];
+    A.push([x,y,1,0,0,0,-x*X,-y*X]); b.push(X);
+    A.push([0,0,0,x,y,1,-x*Y,-y*Y]); b.push(Y);
+  }
+  // normal equations N h = r  (8x8)
+  const N=Array.from({length:8},()=>new Array(8).fill(0)), r=new Array(8).fill(0);
+  for(let i=0;i<A.length;i++){ for(let j=0;j<8;j++){ r[j]+=A[i][j]*b[i]; for(let k=0;k<8;k++) N[j][k]+=A[i][j]*A[i][k]; } }
+  const h=solve(N,r);
+  return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+}
+function solve(M,v){ // Gaussian elimination, M is n x n (mutated)
+  const n=v.length, a=M.map((row,i)=>row.concat(v[i]));
+  for(let c=0;c<n;c++){
+    let p=c; for(let r2=c+1;r2<n;r2++) if(Math.abs(a[r2][c])>Math.abs(a[p][c])) p=r2;
+    [a[c],a[p]]=[a[p],a[c]];
+    const pv=a[c][c]||1e-9;
+    for(let r2=0;r2<n;r2++){ if(r2===c) continue; const f=a[r2][c]/pv;
+      for(let k=c;k<=n;k++) a[r2][k]-=f*a[c][k]; }
+  }
+  return a.map((row,i)=>row[n]/(row[i]||1e-9));
+}
+function inv3(M){
+  const [a,b,c,d,e,f,g,h,i]=M;
+  const A=e*i-f*h, B=-(d*i-f*g), C=d*h-e*g,
+        Dt=a*A+b*B+c*C;
+  const D=-(b*i-c*h), E=a*i-c*g, F=-(a*h-b*g),
+        G=b*f-c*e, Hh=-(a*f-c*d), I=a*e-b*d;
+  return [A/Dt,D/Dt,G/Dt, B/Dt,E/Dt,Hh/Dt, C/Dt,F/Dt,I/Dt];
+}
+
+/* ---------------- board overlay + scoring ---------------- */
+function bp(x,y){ return applyH(Hinv,x,y); } // board -> image
+function ringPath(r){ sctx.beginPath();
+  for(let a=0;a<=360;a+=4){ const t=a*Math.PI/180, [ix,iy]=bp(r*Math.cos(t),r*Math.sin(t));
+    a===0?sctx.moveTo(ix,iy):sctx.lineTo(ix,iy); } sctx.stroke(); }
+function drawBoardOverlay(){
+  sctx.save(); sctx.strokeStyle='rgba(79,157,255,.9)'; sctx.lineWidth=1.6;
+  [R.dbull,R.sbull,R.tin,R.tout,R.din,R.dout].forEach(ringPath);
+  sctx.lineWidth=1;
+  for(let k=0;k<20;k++){ const ang=(-90+9+18*k)*Math.PI/180;
+    const [x1,y1]=bp(R.sbull*Math.cos(ang),R.sbull*Math.sin(ang));
+    const [x2,y2]=bp(R.dout*Math.cos(ang),R.dout*Math.sin(ang));
+    sctx.beginPath(); sctx.moveTo(x1,y1); sctx.lineTo(x2,y2); sctx.stroke(); }
+  // number labels a touch outside the double
+  sctx.fillStyle='rgba(79,157,255,1)'; sctx.font='bold 16px sans-serif'; sctx.textAlign='center';
+  for(let i=0;i<20;i++){ const ang=(-90+18*i)*Math.PI/180; const [lx,ly]=bp((R.dout+14)*Math.cos(ang),(R.dout+14)*Math.sin(ang));
+    sctx.fillText(SEQ[i],lx,ly+5); }
+  sctx.restore();
+}
+function boardScore(x,y){
+  const r=Math.hypot(x,y);
+  if(r<=R.dbull) return {label:'Bull (50)', pts:50, num:25, mult:2};
+  if(r<=R.sbull) return {label:'25', pts:25, num:25, mult:1};
+  if(r>R.dout)   return {label:'miss', pts:0, num:0, mult:0};
+  let ang=Math.atan2(y,x)*180/Math.PI;
+  const n=SEQ[(((Math.round((ang+90)/18)%20)+20)%20)];
+  if(r<=R.tin)  return {label:''+n, pts:n, num:n, mult:1};
+  if(r<=R.tout) return {label:'Triple '+n, pts:n*3, num:n, mult:3};
+  if(r<=R.din)  return {label:''+n, pts:n, num:n, mult:1};
+  return {label:'Double '+n, pts:n*2, num:n, mult:2};
+}
+function testAt(x,y){
+  drawStage();
+  const b=applyH(H,x,y), s=boardScore(b[0],b[1]);
+  marker(sctx,x,y,0,'#e8b84b');
+  $('testReadout').textContent=s.label+(s.pts?('  ·  '+s.pts+' pts'):'');
+  $('lastHit').textContent=s.label; $('lastHit').className='pill '+(s.pts?'ok':'warn');
+}
+
+/* ---------------- Step 4: auto-detect ---------------- */
+const live=$('live'), lc=live.getContext('2d');
+const proc=document.createElement('canvas'); const pc=proc.getContext('2d',{willReadFrequently:true});
+const PW=480; let PH=270, fullW=0, fullH=0, SX=1, SY=1;
+let baseGray=null, detecting=false, dState='idle', prevCount=0, stableFrames=0, cooldown=0, detTimer=null, pendingHit=null;
+const bc=(()=>{ try{ return new BroadcastChannel('dartcam'); }catch(e){ return null; } })();
+
+function startDetection(){
+  if(!H){ return; }
+  fullW=video.videoWidth; fullH=video.videoHeight;
+  PH=Math.round(PW*fullH/fullW); proc.width=PW; proc.height=PH;
+  SX=fullW/PW; SY=fullH/PH;
+  live.width=fullW; live.height=fullH;
+  baseGray=null; dState='idle'; stableFrames=0; prevCount=0; pendingHit=null;
+  detecting=true; $('detBtn').textContent='Stop';
+  $('detState').textContent='watching'; $('detState').className='pill ok';
+  if(detTimer) clearInterval(detTimer);
+  detTimer=setInterval(detLoop,100);
+}
+function stopDetection(){ detecting=false; if(detTimer) clearInterval(detTimer); detTimer=null;
+  $('detBtn').textContent='Start detecting'; $('detState').textContent='off'; $('detState').className='pill'; }
+$('detBtn').onclick=()=> detecting?stopDetection():startDetection();
+$('resetBase').onclick=()=>{ baseGray=null; $('detInfo').textContent='baseline reset'; };
+
+function grayOf(){
+  pc.drawImage(video,0,0,PW,PH);
+  const d=pc.getImageData(0,0,PW,PH).data, g=new Uint8Array(PW*PH);
+  for(let i=0,j=0;i<d.length;i+=4,j++) g[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
+  return g;
+}
+function detLoop(){
+  if(!detecting) return;
+  const cur=grayOf();
+  lc.drawImage(video,0,0,fullW,fullH);
+  if(pendingHit){ drawHitMarker(pendingHit); return; }
+  if(!baseGray){ baseGray=cur; $('detInfo').textContent='baseline set — throw a dart'; return; }
+  const thr=+$('sens').value;
+  let count=0; const pts=[];
+  for(let y=0;y<PH;y++) for(let x=0;x<PW;x++){ const i=y*PW+x;
+    if(Math.abs(cur[i]-baseGray[i])>thr){ count++; pts.push(x,y); } }
+  drawDiffOverlay(pts);
+  $('detInfo').textContent=`${dState} · ${count}px changed`;
+  const HAND_MAX=PW*PH*0.12, MIN_DART=25, now=Date.now();
+  if(now<cooldown) return;
+  if(count>HAND_MAX){ dState='blocked'; return; }
+  if(dState==='blocked'){ if(count<MIN_DART) dState='idle'; return; }
+  if(dState==='idle'){ if(count>=MIN_DART){ dState='active'; prevCount=count; stableFrames=0; } return; }
+  if(dState==='active'){
+    if(count<MIN_DART){ dState='idle'; return; }
+    if(Math.abs(count-prevCount) < Math.max(8, count*0.08)) stableFrames++; else stableFrames=0;
+    prevCount=count;
+    if(stableFrames>=2){
+      const hit=extractTip(pts);
+      baseGray=cur; dState='idle'; cooldown=now+700; stableFrames=0;
+      if(hit) presentHit(hit);
+    }
+  }
+}
+function drawDiffOverlay(pts){ lc.save(); lc.fillStyle='rgba(79,157,255,.45)';
+  for(let k=0;k<pts.length;k+=2) lc.fillRect(pts[k]*SX, pts[k+1]*SY, SX+1, SY+1); lc.restore(); }
+function extractTip(pts){
+  const n=pts.length/2; if(n<15) return null;
+  let cx=0,cy=0; for(let k=0;k<pts.length;k+=2){ cx+=pts[k]; cy+=pts[k+1]; } cx/=n; cy/=n;
+  let mxx=0,myy=0,mxy=0;
+  for(let k=0;k<pts.length;k+=2){ const dx=pts[k]-cx, dy=pts[k+1]-cy; mxx+=dx*dx; myy+=dy*dy; mxy+=dx*dy; }
+  mxx/=n; myy/=n; mxy/=n;
+  const ang=0.5*Math.atan2(2*mxy, mxx-myy), dx=Math.cos(ang), dy=Math.sin(ang);
+  let tmin=1e9,tmax=-1e9,pmin=null,pmax=null;
+  for(let k=0;k<pts.length;k+=2){ const t=(pts[k]-cx)*dx+(pts[k+1]-cy)*dy;
+    if(t<tmin){ tmin=t; pmin=[pts[k],pts[k+1]]; } if(t>tmax){ tmax=t; pmax=[pts[k],pts[k+1]]; } }
+  if(tmax-tmin<8) return null;                     // not dart-shaped enough
+  const tip = pmin[1]<pmax[1]? pmin : pmax;          // camera below → tip is the higher end
+  const fx=tip[0]*SX, fy=tip[1]*SY, b=applyH(H,fx,fy), s=boardScore(b[0],b[1]);
+  return {ix:fx, iy:fy, num:s.num, mult:s.mult, points:s.pts, label:s.label};
+}
+function drawHitMarker(h){ lc.save(); lc.strokeStyle='#e8b84b'; lc.fillStyle='#e8b84b'; lc.lineWidth=3;
+  lc.beginPath(); lc.arc(h.ix,h.iy,11,0,7); lc.stroke();
+  lc.beginPath(); lc.moveTo(h.ix-18,h.iy); lc.lineTo(h.ix+18,h.iy); lc.moveTo(h.ix,h.iy-18); lc.lineTo(h.ix,h.iy+18); lc.stroke();
+  lc.font='bold 28px sans-serif'; lc.fillText(h.label, h.ix+20, h.iy-16); lc.restore(); }
+function presentHit(h){
+  pendingHit=h; drawHitMarker(h);
+  $('detHit').textContent=h.label+(h.points?(' ('+h.points+' pts)'):'');
+  $('confirmBox').style.display='block';
+}
+$('acceptHit').onclick=()=>{ if(pendingHit && $('sendGame').checked && bc)
+    bc.postMessage({num:pendingHit.num, mult:pendingHit.mult, points:pendingHit.points, label:pendingHit.label});
+  $('confirmBox').style.display='none'; pendingHit=null; };
+$('rejectHit').onclick=()=>{ $('confirmBox').style.display='none'; pendingHit=null; };
+</script>
+</body>
+</html>

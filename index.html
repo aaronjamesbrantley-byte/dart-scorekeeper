@@ -1086,6 +1086,19 @@ function saveState(){ save('dart_ui_v1',{sound:state.sound,big:state.big}); }
   if(saved&&saved.game){ game=saved.game; state.screen='game'; enterGame(); }
   else renderSetup();
 })();
+
+/* Receive darts from the camera page (camera.html) via BroadcastChannel */
+(function(){
+  try{
+    const bc=new BroadcastChannel('dartcam');
+    bc.onmessage=e=>{
+      const h=e.data;
+      if(!h||typeof h.num!=='number') return;
+      if(!game||game.finished||game.awaitingNext) return;
+      registerDart({ num:h.num, mult:h.mult, points:(h.points!=null?h.points:h.num*(h.mult||1)), label:h.label });
+    };
+  }catch(err){}
+})();
 </script>
 </body>
 </html>
