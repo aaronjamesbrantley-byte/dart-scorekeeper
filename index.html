@@ -136,6 +136,14 @@
   .hist-item .h{display:flex; justify-content:space-between; color:var(--muted)}
   .win-name{color:var(--gold); font-weight:700}
 
+  #btnMic.on{background:var(--bad); border-color:var(--bad); color:#fff}
+  .voicechip{position:fixed; left:50%; transform:translateX(-50%); bottom:14px; z-index:30;
+    background:var(--panel2); border:1px solid var(--line); border-radius:22px; padding:9px 16px;
+    font-size:14px; color:var(--txt); box-shadow:0 6px 18px rgba(0,0,0,.45); max-width:92vw;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .voicechip .mut{color:var(--muted)}
+  .voicechip b{color:var(--accent)}
+
   .rules{font-size:14px; line-height:1.55}
   .rules h3{margin:20px 0 6px; font-size:16px; color:var(--accent)}
   .rules h4{margin:14px 0 4px; font-size:14px; color:var(--gold)}
@@ -164,10 +172,13 @@
   <button class="ghost small" id="btnNew">New Game</button>
   <button class="ghost small" id="btnRules">Rules</button>
   <button class="ghost small" id="btnStats">Stats</button>
+  <button class="ghost small" id="btnMic" title="Call out your scores">🎤 Voice</button>
+  <label class="toggle"><input type="checkbox" id="chkSpeak"> Say scores</label>
   <label class="toggle"><input type="checkbox" id="chkBig"> Big screen</label>
   <label class="toggle"><input type="checkbox" id="chkSound" checked> Sound</label>
 </header>
 <main id="main"></main>
+<div id="voiceChip" class="voicechip" style="display:none"></div>
 
 <div class="modal" id="rulesModal">
   <div class="box">
@@ -627,6 +638,7 @@ function registerDart(hit){
   else                  applyTraining(hit);
   persist();
   updateUI();
+  announceDart();
 }
 function endTurnFlags(){ game.awaitingNext=true; }
 
@@ -798,10 +810,10 @@ function nextPlayer(){
   if(game.type==='training' && game.roundBased && wrapped){
     game.round++;
     if(game.round>game.maxRounds || (game.mode==='bob27' && game.players.every(p=>p.out))){
-      finalizeTraining(); persist(); updateUI(); return;
+      finalizeTraining(); persist(); updateUI(); announceNewTurn(); return;
     }
   }
-  persist(); updateUI();
+  persist(); updateUI(); announceNewTurn();
 }
 function markChanceX01(g){
   const p=g.players[g.current];
@@ -1092,13 +1104,119 @@ document.getElementById('chkBig').onchange=e=>{ state.big=e.target.checked; docu
   if(state.big && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
   else if(!state.big && document.fullscreenElement) document.exitFullscreen().catch(()=>{}); saveState(); };
 document.getElementById('chkSound').onchange=e=>{ state.sound=e.target.checked; saveState(); };
-function saveState(){ save('dart_ui_v1',{sound:state.sound,big:state.big}); }
+function saveState(){ save('dart_ui_v1',{sound:state.sound,big:state.big,speak:state.speak}); }
+
+/* ============================ Voice: speak scores + listen for calls ============================ */
+function speakOn(){ return !!state.speak; }
+function say(text){
+  if(!speakOn()||!text) return;
+  try{ if(!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text); u.rate=1.05; u.pitch=1; u.volume=1;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+function spokenDart(d){
+  if(!d) return '';
+  if(d.num===0||d.mult===0) return 'no score';
+  if(d.num===25) return d.mult===2?'bullseye':'twenty five';
+  if(d.mult===3) return 'triple '+d.num;
+  if(d.mult===2) return 'double '+d.num;
+  return ''+d.num;
+}
+function winnerPhrase(){ const w=game.players[game.winner];
+  if(game.type==='x01' && game.players.length===1) return 'Game shot. Checked out.';
+  return w.name+' wins'; }
+function turnEndPhrase(){ if(game.type==='x01') return game.players[game.current].remaining+' remaining'; return ''; }
+function announceDart(){
+  if(!speakOn()||!game) return;
+  const d=game.turnDarts[game.turnDarts.length-1];
+  let p = d? spokenDart(d) : '';
+  if(game.finished){ p=(p?p+'. ':'')+winnerPhrase(); }
+  else if(game.lastEvent && game.lastEvent.type==='bust'){ p=(p?p+', ':'')+'bust'; }
+  else if(game.awaitingNext){ const e=turnEndPhrase(); if(e) p=(p?p+'. ':'')+e; }
+  if(p) say(p);
+}
+function announceNewTurn(){
+  if(!speakOn()||!game) return;
+  if(game.finished){ say(winnerPhrase()); return; }
+  const p=game.players[game.current];
+  say(game.type==='x01' ? (p.name+', '+p.remaining+' remaining') : (p.name+' to throw'));
+}
+
+const SPK_NUM={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
+  eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
+function wordNum(t){
+  const dm=t.match(/\b(\d{1,2})\b/); if(dm){ const n=+dm[1]; if(n>=0&&n<=20) return n; }
+  const keys=Object.keys(SPK_NUM).sort((a,b)=>b.length-a.length);
+  for(const k of keys){ if(new RegExp('\\b'+k+'\\b').test(t)) return SPK_NUM[k]; }
+  return null;
+}
+function mkDart(num,mult,label){ return {dart:{num,mult,points:num*mult,label}}; }
+function parseSpeech(raw){
+  let t=raw.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  if(!t) return null;
+  t=t.replace(/\btops?\b/g,'20');            // darts slang: "double top" = D20, "tops" = 20
+  if(/\b(next|next player|next up|done)\b/.test(t)) return {cmd:'next'};
+  if(/\b(undo|scratch that|take it back)\b/.test(t)) return {cmd:'undo'};
+  if(/\b(miss|missed|no score|nothing)\b/.test(t)) return {dart:{num:0,mult:0,points:0,label:'MISS'}};
+  const outer=/\b(outer bull|single bull|twenty five|25)\b/.test(t);
+  const bull=/\b(bull|bulls eye|bullseye|double bull|fifty|50)\b/.test(t);
+  if(bull && !outer) return mkDart(25,2,'Bull');
+  if(outer) return mkDart(25,1,'25');
+  let mult=1;
+  if(/\b(triple|treble)\b/.test(t)) mult=3; else if(/\bdouble\b/.test(t)) mult=2;
+  const n=wordNum(t);
+  if(n>=1 && n<=20) return mkDart(n,mult,(mult===3?'T':mult===2?'D':'')+n);
+  return null;
+}
+let recog=null, listening=false;
+function initRecog(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return null;
+  const r=new SR(); r.continuous=true; r.interimResults=false; r.lang='en-US';
+  r.onresult=e=>{ for(let i=e.resultIndex;i<e.results.length;i++){ if(e.results[i].isFinal) handleSpeech(e.results[i][0].transcript); } };
+  r.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed'){ listening=false; updateMicBtn(); voiceStatus('microphone blocked — allow it in the browser','err'); } };
+  r.onend=()=>{ if(listening){ try{ r.start(); }catch(e){} } };
+  return r;
+}
+function startListening(){
+  if(!recog) recog=initRecog();
+  if(!recog){ voiceStatus('voice input not supported in this browser (try Chrome)','err'); return; }
+  listening=true; try{ recog.start(); }catch(e){}
+  updateMicBtn(); voiceStatus('listening… call your darts, e.g. “triple twenty”');
+}
+function stopListening(){ listening=false; if(recog){ try{ recog.stop(); }catch(e){} } updateMicBtn();
+  const c=document.getElementById('voiceChip'); if(c) c.style.display='none'; }
+function updateMicBtn(){ const b=document.getElementById('btnMic'); if(!b) return;
+  b.classList.toggle('on',listening); b.textContent=listening?'🎤 Listening…':'🎤 Voice'; }
+function handleSpeech(tx){
+  const res=parseSpeech(tx); voiceHeard(tx,res);
+  if(!res) return;
+  if(res.cmd==='next'){ nextPlayer(); return; }
+  if(res.cmd==='undo'){ undo(); say('undo'); return; }
+  if(res.dart && game && !game.finished && !game.awaitingNext && state.screen==='game') registerDart(res.dart);
+}
+function voiceHeard(tx,res){
+  const c=document.getElementById('voiceChip'); if(!c) return;
+  let out;
+  if(res && res.cmd) out=res.cmd;
+  else if(res && res.dart) out=res.dart.label==='MISS'?'miss':spokenDart(res.dart);
+  else out='<span class="mut">not understood</span>';
+  c.innerHTML='🎤 “'+escapeHtml(tx.trim())+'” → <b>'+out+'</b>';
+  c.style.display='block';
+}
+function voiceStatus(msg,cls){ const c=document.getElementById('voiceChip'); if(!c) return;
+  c.innerHTML='🎤 '+(cls==='err'?'<span class="mut">'+escapeHtml(msg)+'</span>':escapeHtml(msg)); c.style.display='block'; }
+document.getElementById('btnMic').onclick=()=> listening?stopListening():startListening();
+document.getElementById('chkSpeak').onchange=e=>{ state.speak=e.target.checked;
+  if(state.speak) say('voice on'); saveState(); };
 
 /* ============================ Boot ============================ */
 (function boot(){
-  const ui=load('dart_ui_v1'); if(ui){ state.sound=ui.sound!==false; state.big=!!ui.big; }
+  const ui=load('dart_ui_v1'); if(ui){ state.sound=ui.sound!==false; state.big=!!ui.big; state.speak=!!ui.speak; }
   document.getElementById('chkSound').checked=state.sound;
   document.getElementById('chkBig').checked=state.big;
+  document.getElementById('chkSpeak').checked=state.speak;
   document.body.classList.toggle('big',state.big);
 
   const saved=load(LS_GAME);
