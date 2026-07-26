@@ -1157,6 +1157,8 @@ function parseSpeech(raw){
   let t=raw.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
   if(!t) return null;
   t=t.replace(/\btops?\b/g,'20');            // darts slang: "double top" = D20, "tops" = 20
+  if(/\bnew game\b/.test(t)) return {cmd:'newgame'};
+  if(/\b(play again|rematch)\b/.test(t)) return {cmd:'again'};
   if(/\b(next|next player|next up|done)\b/.test(t)) return {cmd:'next'};
   if(/\b(undo|scratch that|take it back)\b/.test(t)) return {cmd:'undo'};
   if(/\b(miss|missed|no score|nothing)\b/.test(t)) return {dart:{num:0,mult:0,points:0,label:'MISS'}};
@@ -1194,12 +1196,14 @@ function handleSpeech(tx){
   if(!res) return;
   if(res.cmd==='next'){ nextPlayer(); return; }
   if(res.cmd==='undo'){ undo(); say('undo'); return; }
+  if(res.cmd==='newgame'){ localStorage.removeItem(LS_GAME); game=null; undoStack=[]; state.screen='setup'; setupCfg=null; renderSetup(); say('new game'); return; }
+  if(res.cmd==='again'){ if(game){ rematch(); announceNewTurn(); } return; }
   if(res.dart && game && !game.finished && !game.awaitingNext && state.screen==='game') registerDart(res.dart);
 }
 function voiceHeard(tx,res){
   const c=document.getElementById('voiceChip'); if(!c) return;
   let out;
-  if(res && res.cmd) out=res.cmd;
+  if(res && res.cmd) out=({next:'next player',undo:'undo',newgame:'new game',again:'play again'})[res.cmd]||res.cmd;
   else if(res && res.dart) out=res.dart.label==='MISS'?'miss':spokenDart(res.dart);
   else out='<span class="mut">not understood</span>';
   c.innerHTML='🎤 “'+escapeHtml(tx.trim())+'” → <b>'+out+'</b>';
