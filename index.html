@@ -137,6 +137,7 @@
   .win-name{color:var(--gold); font-weight:700}
 
   #btnMic.on{background:var(--bad); border-color:var(--bad); color:#fff}
+  #btnOnline.live{background:var(--good); border-color:var(--good); color:#04120a; font-weight:600}
   .voicechip{position:fixed; left:50%; transform:translateX(-50%); bottom:14px; z-index:30;
     background:var(--panel2); border:1px solid var(--line); border-radius:22px; padding:9px 16px;
     font-size:14px; color:var(--txt); box-shadow:0 6px 18px rgba(0,0,0,.45); max-width:92vw;
@@ -172,6 +173,7 @@
   <button class="ghost small" id="btnNew">New Game</button>
   <button class="ghost small" id="btnRules">Rules</button>
   <button class="ghost small" id="btnStats">Stats</button>
+  <button class="ghost small" id="btnOnline">🔗 Online</button>
   <button class="ghost small" id="btnMic" title="Call out your scores">🎤 Voice</button>
   <label class="toggle"><input type="checkbox" id="chkSpeak"> Say scores</label>
   <label class="toggle"><input type="checkbox" id="chkBig"> Big screen</label>
@@ -246,6 +248,16 @@
   </div>
 </div>
 
+<div class="modal" id="onlineModal">
+  <div class="box">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">🔗 Online session</h2>
+      <button class="small" onclick="closeOnline()">Close</button>
+    </div>
+    <div id="onlineBody" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -292,6 +304,10 @@ const LS_GAME='dart_current_v1', LS_HIST='dart_history_v1', LS_PREF='dart_pref_v
 let state={ screen:'setup', sound:true, big:false };
 let game=null;          // active game object
 let undoStack=[];       // snapshots for undo
+
+/* Online session (Cloudflare Worker + Durable Object hub) */
+const WSS='wss://dart-sessions.aaronjamesbrantley.workers.dev/session';
+let net={ ws:null, role:null, sid:null, id:Math.random().toString(36).slice(2,8), count:0, status:'off', entered:false };
 
 /* ============================ Checkout solver ============================ */
 const OUTCOMES=(()=>{
@@ -608,9 +624,9 @@ function enterGame(){
     </div>`;
   const board=document.getElementById('board');
   board.addEventListener('pointerdown',onBoardClick);
-  document.getElementById('btnMiss').onclick=()=>registerDart({num:0,mult:0,points:0,label:'MISS'});
-  document.getElementById('btnUndo').onclick=undo;
-  document.getElementById('btnNext').onclick=nextPlayer;
+  document.getElementById('btnMiss').onclick=()=>doDart({num:0,mult:0,points:0,label:'MISS'});
+  document.getElementById('btnUndo').onclick=doUndo;
+  document.getElementById('btnNext').onclick=doNext;
   updateUI();
 }
 function onBoardClick(e){
@@ -621,7 +637,7 @@ function onBoardClick(e){
   const py=(e.clientY-rect.top)/rect.height*500;
   const hit=hitTest(px,py);
   hit._x=px; hit._y=py;
-  registerDart(hit);
+  doDart(hit);
 }
 
 /* ============================ Dart handling ============================ */
@@ -848,6 +864,8 @@ function updateUI(){
 
   const rb=document.getElementById('btnRematch');
   if(rb) rb.onclick=rematch;
+
+  if(isHosting()) netPushState();
 }
 function renderMarkers(){
   const g=document.getElementById('markers');
@@ -1194,11 +1212,11 @@ function updateMicBtn(){ const b=document.getElementById('btnMic'); if(!b) retur
 function handleSpeech(tx){
   const res=parseSpeech(tx); voiceHeard(tx,res);
   if(!res) return;
-  if(res.cmd==='next'){ nextPlayer(); return; }
-  if(res.cmd==='undo'){ undo(); say('undo'); return; }
-  if(res.cmd==='newgame'){ localStorage.removeItem(LS_GAME); game=null; undoStack=[]; state.screen='setup'; setupCfg=null; renderSetup(); say('new game'); return; }
-  if(res.cmd==='again'){ if(game){ rematch(); announceNewTurn(); } return; }
-  if(res.dart && game && !game.finished && !game.awaitingNext && state.screen==='game') registerDart(res.dart);
+  if(res.cmd==='next'){ doNext(); return; }
+  if(res.cmd==='undo'){ doUndo(); say('undo'); return; }
+  if(res.cmd==='newgame'){ if(isJoiner()) return; localStorage.removeItem(LS_GAME); game=null; undoStack=[]; state.screen='setup'; setupCfg=null; renderSetup(); say('new game'); return; }
+  if(res.cmd==='again'){ if(isJoiner()) return; if(game){ rematch(); announceNewTurn(); } return; }
+  if(res.dart && game && !game.finished && !game.awaitingNext && state.screen==='game') doDart(res.dart);
 }
 function voiceHeard(tx,res){
   const c=document.getElementById('voiceChip'); if(!c) return;
@@ -1215,6 +1233,111 @@ document.getElementById('btnMic').onclick=()=> listening?stopListening():startLi
 document.getElementById('chkSpeak').onchange=e=>{ state.speak=e.target.checked;
   if(state.speak) say('voice on'); saveState(); };
 
+/* ============================ Online session (host / join) ============================ */
+function isJoiner(){ return net.role==='join' && net.ws && net.ws.readyState===1; }
+function isHosting(){ return net.role==='host' && net.ws && net.ws.readyState===1; }
+function doDart(hit){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'dart',payload:hit}); else registerDart(hit); }
+function doNext(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'next'}); else nextPlayer(); }
+function doUndo(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'undo'}); else undo(); }
+
+function netSend(o){ if(net.ws && net.ws.readyState===1) net.ws.send(JSON.stringify(o)); }
+function netPushState(){ if(isHosting() && game) netSend({type:'state', state:game}); }
+function netClose(){ if(net.ws){ try{ net.ws.onclose=null; net.ws.close(); }catch(e){} } net.ws=null; }
+function sessionLink(sid){ return location.origin+location.pathname+'#s='+sid; }
+
+function netConnect(sid, role){
+  netClose();
+  net.sid=sid; net.role=role; net.status='connecting'; net.entered=false;
+  renderNetBadge(); renderOnline();
+  const ws=new WebSocket(WSS+'?id='+encodeURIComponent(sid)); net.ws=ws;
+  ws.onopen=()=>{ net.status='connected'; ws.send(JSON.stringify({type:'hello',role,clientId:net.id}));
+    if(role==='host') netPushState(); renderNetBadge(); renderOnline(); };
+  ws.onmessage=e=>onNetMessage(e.data);
+  ws.onclose=()=>{ if(net.status!=='off'){ net.status='dropped'; } renderNetBadge(); renderOnline(); };
+  ws.onerror=()=>{ net.status='error'; renderNetBadge(); renderOnline(); };
+}
+function onNetMessage(data){
+  let m; try{ m=JSON.parse(data); }catch(e){ return; }
+  if(m.type==='presence'){ net.count=m.count; renderNetBadge(); renderOnline(); return; }
+  if(m.type==='hostgone'){ if(net.role==='join'){ net.status='hostgone'; renderOnline(); } return; }
+  if(m.type==='state'){ if(net.role==='join') applyRemoteState(m.state); return; }
+  if(m.type==='action'){ if(net.role==='host') applyRemoteAction(m); return; }
+}
+function applyRemoteState(gs){
+  game=gs; net.status='connected';
+  if(!net.entered || !document.getElementById('board')){ net.entered=true; state.screen='game'; enterGame(); }
+  else updateUI();
+  renderNetBadge();
+}
+function applyRemoteAction(m){
+  if(!game) return;
+  if(m.kind==='dart'){ if(!game.finished && !game.awaitingNext) registerDart(m.payload); }
+  else if(m.kind==='next'){ nextPlayer(); }
+  else if(m.kind==='undo'){ undo(); }
+}
+function hostSession(){
+  if(!game){ renderOnline('needgame'); return; }
+  if(!net.sid) net.sid=Math.random().toString(36).slice(2,8);
+  netConnect(net.sid,'host');
+}
+function stopSession(){ net.status='off'; netClose(); const wasJoin=net.role==='join'; net.role=null; net.entered=false; net.count=0;
+  renderNetBadge(); renderOnline();
+  if(wasJoin){ game=null; state.screen='setup'; setupCfg=null; renderSetup(); }
+}
+function startJoinScreen(sid){
+  document.getElementById('main').innerHTML=`<div class="setup"><div class="card">
+    <h2>Joining session…</h2>
+    <p class="hint" id="joinMsg">Connecting to the host. The board will appear as soon as they're online.</p>
+    <button class="small" id="joinCancel">Cancel</button></div></div>`;
+  document.getElementById('joinCancel').onclick=()=>{ location.hash=''; stopSession(); };
+  netConnect(sid,'join');
+}
+
+/* Online UI */
+document.getElementById('btnOnline').onclick=()=>{ document.getElementById('onlineModal').classList.add('open'); renderOnline(); };
+document.getElementById('onlineModal').onclick=e=>{ if(e.target.id==='onlineModal') closeOnline(); };
+function closeOnline(){ document.getElementById('onlineModal').classList.remove('open'); }
+function renderNetBadge(){ const b=document.getElementById('btnOnline'); if(!b) return;
+  const live=isHosting()||isJoiner();
+  b.classList.toggle('live',live);
+  b.textContent = live ? ('🔗 Live · '+net.count) : '🔗 Online';
+}
+function renderOnline(force){
+  const body=document.getElementById('onlineBody'); if(!body) return;
+  if(isHosting()){
+    const link=sessionLink(net.sid);
+    body.innerHTML=`<p>You're hosting. Share this link — anyone who opens it joins your live board.</p>
+      <div class="row" style="gap:8px"><input type="text" id="lnk" readonly value="${escapeHtml(link)}" style="flex:1;min-width:200px">
+        <button class="primary" id="cpy">Copy</button></div>
+      <p class="hint" style="margin-top:10px">Connected devices: <b>${net.count}</b>. Whoever's turn it is enters their own darts; you can always undo. Keep this tab open — you're the host.</p>
+      <div style="margin-top:12px"><button class="danger small" id="stopHost">Stop hosting</button></div>`;
+    body.querySelector('#cpy').onclick=()=>{ const i=body.querySelector('#lnk'); i.select();
+      navigator.clipboard&&navigator.clipboard.writeText(i.value); body.querySelector('#cpy').textContent='Copied ✓'; };
+    body.querySelector('#stopHost').onclick=()=>{ stopSession(); renderOnline(); };
+    return;
+  }
+  if(isJoiner()||net.role==='join'){
+    const msg = net.status==='hostgone' ? '<span class="warn">Host is offline — waiting for them to return…</span>'
+      : net.status==='connected' ? 'Connected to the live board.'
+      : net.status==='dropped'||net.status==='error' ? '<span class="err">Connection lost. Trying again may help.</span>'
+      : 'Connecting…';
+    body.innerHTML=`<p>${msg}</p>
+      <p class="hint">Devices here: <b>${net.count}</b>. Enter your darts on your turn; everyone sees it live.</p>
+      <div style="margin-top:12px"><button class="small" id="leave">Leave session</button></div>`;
+    body.querySelector('#leave').onclick=()=>{ location.hash=''; stopSession(); closeOnline(); };
+    return;
+  }
+  if(force==='needgame' || !game){
+    body.innerHTML=`<p>To host, start a game first (pick players and a mode), then come back here and host it.</p>
+      <p class="hint">To join someone else's game, just open the link they send you.</p>`;
+    return;
+  }
+  body.innerHTML=`<p>Host your current game so someone in another location can play along live.</p>
+    <p class="hint">You stay in control as host; remote players enter their own darts on their turn.</p>
+    <div style="margin-top:12px"><button class="primary" id="startHost">Host this game</button></div>`;
+  body.querySelector('#startHost').onclick=()=>{ hostSession(); };
+}
+
 /* ============================ Boot ============================ */
 (function boot(){
   const ui=load('dart_ui_v1'); if(ui){ state.sound=ui.sound!==false; state.big=!!ui.big; state.speak=!!ui.speak; }
@@ -1222,6 +1345,9 @@ document.getElementById('chkSpeak').onchange=e=>{ state.speak=e.target.checked;
   document.getElementById('chkBig').checked=state.big;
   document.getElementById('chkSpeak').checked=state.speak;
   document.body.classList.toggle('big',state.big);
+
+  const j=location.hash.match(/[#&]s=([a-z0-9]+)/i);
+  if(j){ startJoinScreen(j[1]); return; }
 
   const saved=load(LS_GAME);
   if(saved&&saved.game){ game=saved.game; state.screen='game'; enterGame(); }
