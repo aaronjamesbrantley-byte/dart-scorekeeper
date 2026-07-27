@@ -643,6 +643,7 @@ function onBoardClick(e){
 /* ============================ Dart handling ============================ */
 function registerDart(hit){
   if(!game||game.finished||game.awaitingNext) return;
+  cancelAutoAdv();
   undoStack.push(structuredClone(game));
   if(undoStack.length>200) undoStack.shift();
   game.lastEvent=null;
@@ -655,6 +656,7 @@ function registerDart(hit){
   persist();
   updateUI();
   announceDart();
+  maybeAutoAdvance();
 }
 function endTurnFlags(){ game.awaitingNext=true; }
 
@@ -808,6 +810,7 @@ function halveTargetLabel(t){
 
 function nextPlayer(){
   if(!game||game.finished) return;
+  cancelAutoAdv();
   undoStack.push(structuredClone(game));
   // if a training turn is ended early (before 3 darts), resolve its per-turn scoring now
   if(game.type==='training' && !game.awaitingNext && game.dartsThisTurn>0){
@@ -836,6 +839,7 @@ function markChanceX01(g){
   if(p.opened && checkout(p.remaining,3,g.config.outRule)) p.checkoutChances++;
 }
 function undo(){
+  cancelAutoAdv();
   if(!undoStack.length) return;
   game=undoStack.pop();
   persist(); updateUI();
@@ -858,12 +862,19 @@ function updateUI(){
   const btnUndo=document.getElementById('btnUndo');
   const btnNext=document.getElementById('btnNext');
   const btnMiss=document.getElementById('btnMiss');
-  if(btnUndo) btnUndo.disabled=!undoStack.length;
+  if(btnUndo) btnUndo.disabled = isJoiner() ? !(game && game._canUndo) : !undoStack.length;
   if(btnNext){ btnNext.disabled=game.finished; btnNext.textContent=(game.players.length===1?'Next turn →':'Next player →'); }
   if(btnMiss) btnMiss.disabled=game.finished||game.awaitingNext;
 
   const rb=document.getElementById('btnRematch');
   if(rb) rb.onclick=rematch;
+
+  // tap a player to set who throws (only between turns / at the start)
+  const canSet = !game.finished && game.dartsThisTurn===0;
+  side.querySelectorAll('[data-setcur]').forEach(el=>{
+    el.style.cursor = canSet ? 'pointer' : '';
+    el.onclick = ()=>{ if(!game.finished && game.dartsThisTurn===0) doSetCurrent(+el.getAttribute('data-setcur')); };
+  });
 
   if(isHosting()) netPushState();
 }
@@ -895,8 +906,10 @@ function renderTurnbar(){
   }else if(game.lastEvent&&game.lastEvent.type==='bust'){
     banner=`<div class="banner bust">BUST — no score this turn</div>`;
   }else if(game.awaitingNext){
-    banner=`<div class="banner info">Turn complete — press “Next player”.</div>`;
+    banner=`<div class="banner info">${(listening&&!isJoiner())?'Turn complete — advancing…':'Turn complete — press “Next player”.'}</div>`;
   }
+  const notStarted = !game.finished && game.dartsThisTurn===0 && game.players.length>1 && !game.players.some(pp=>pp.darts>0);
+  const setHint = notStarted ? `<div class="turn-total" style="color:var(--muted)">Tap a player below to choose who throws first</div>` : '';
   return `
   <div class="turnbar">
     <div class="who">
@@ -905,6 +918,7 @@ function renderTurnbar(){
     </div>
     <div class="darts">${slots}</div>
     <div class="turn-total">This turn: <b>${game.type==='x01'?turnTotal:game.type==='cricket'?cricketTurnMarks()+' marks':trainingTurnInfo(turnTotal)}</b></div>
+    ${setHint}
     ${banner}
   </div>`;
 }
@@ -952,7 +966,7 @@ function renderX01(){
         else if(checkout(p.remaining,3,rule) && game.dartsThisTurn===0) co='Checkout: '+checkout(p.remaining,3,rule).join(' ');
       }
     }
-    return `<div class="pcard ${active?'active':''}">
+    return `<div class="pcard ${active?'active':''}" data-setcur="${i}">
       <div class="top"><span class="pname">${escapeHtml(p.name)}${game.finished&&game.winner===i?' 🏆':''}</span>
         ${game.config.doubleIn&&!p.opened?'<span class="tagpill">not in</span>':''}</div>
       <div class="rem">${p.remaining}</div>
@@ -966,7 +980,7 @@ function renderCricket(){
   const players=game.players;
   const markSym=n=>{ if(n<=0)return ''; if(n===1)return '/'; if(n===2)return 'X'; return 'Ⓧ'; };
   let head=`<tr><th>#</th>`+players.map((p,i)=>
-    `<th class="${i===game.current&&!game.finished?'active':''}">${escapeHtml(p.name)}${game.finished&&game.winner===i?' 🏆':''}</th>`).join('')+`</tr>`;
+    `<th class="${i===game.current&&!game.finished?'active':''}" data-setcur="${i}">${escapeHtml(p.name)}${game.finished&&game.winner===i?' 🏆':''}</th>`).join('')+`</tr>`;
   let rows=CRK_NUMS.map(n=>{
     const label=(n===25?'Bull':n);
     return `<tr><td class="num">${label}</td>`+players.map((p,i)=>{
@@ -1004,7 +1018,7 @@ function renderTraining(){
     }else if(g.mode==='halveit'){
       big=p.score; sub='target: '+halveTargetLabel(g.targets[Math.min(g.round,g.maxRounds)-1]);
     }
-    return `<div class="pcard ${active?'active':''}">
+    return `<div class="pcard ${active?'active':''}" data-setcur="${i}">
       <div class="top"><span class="pname">${escapeHtml(p.name)}${win?' 🏆':''}</span>
         ${g.mode==='bob27'&&p.out?'<span class="tagpill">out</span>':''}</div>
       <div class="rem">${big}</div>
@@ -1239,9 +1253,29 @@ function isHosting(){ return net.role==='host' && net.ws && net.ws.readyState===
 function doDart(hit){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'dart',payload:hit}); else registerDart(hit); }
 function doNext(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'next'}); else nextPlayer(); }
 function doUndo(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'undo'}); else undo(); }
+function doSetCurrent(i){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'setcurrent',payload:i}); else setCurrent(i); }
+function setCurrent(i){
+  if(!game||game.finished||game.dartsThisTurn>0) return;
+  if(i<0||i>=game.players.length||i===game.current){ return; }
+  undoStack.push(structuredClone(game));
+  game.current=i; game.turnDarts=[]; game.markers=[]; game.awaitingNext=false; game.lastEvent=null; game.dartsThisTurn=0;
+  if(game.type==='x01'){ game.turnStartRem=game.players[i].remaining; markChanceX01(game); }
+  persist(); updateUI();
+}
+
+/* In mic mode, roll to the next player automatically once a turn is complete
+   (a short delay lets the spoken score finish and leaves room to say "undo"). */
+let autoAdvTimer=null;
+function cancelAutoAdv(){ if(autoAdvTimer){ clearTimeout(autoAdvTimer); autoAdvTimer=null; } }
+function maybeAutoAdvance(){
+  cancelAutoAdv();
+  if(!listening || isJoiner() || !game || game.finished || !game.awaitingNext) return;
+  autoAdvTimer=setTimeout(()=>{ autoAdvTimer=null;
+    if(game && game.awaitingNext && !game.finished) nextPlayer(); }, 2600);
+}
 
 function netSend(o){ if(net.ws && net.ws.readyState===1) net.ws.send(JSON.stringify(o)); }
-function netPushState(){ if(isHosting() && game) netSend({type:'state', state:game}); }
+function netPushState(){ if(isHosting() && game){ game._canUndo=undoStack.length>0; netSend({type:'state', state:game}); } }
 function netClose(){ if(net.ws){ try{ net.ws.onclose=null; net.ws.close(); }catch(e){} } net.ws=null; }
 function sessionLink(sid){ return location.origin+location.pathname+'#s='+sid; }
 
@@ -1274,6 +1308,7 @@ function applyRemoteAction(m){
   if(m.kind==='dart'){ if(!game.finished && !game.awaitingNext) registerDart(m.payload); }
   else if(m.kind==='next'){ nextPlayer(); }
   else if(m.kind==='undo'){ undo(); }
+  else if(m.kind==='setcurrent'){ setCurrent(m.payload); }
 }
 function hostSession(){
   if(!game){ renderOnline('needgame'); return; }
