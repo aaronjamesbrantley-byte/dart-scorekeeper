@@ -1208,12 +1208,16 @@ function parseNumberWords(t){
 function parseSpeech(raw){
   let t=raw.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
   if(!t) return null;
+  t=t.replace(/\btops?\b/g,'20');          // darts slang: "double top" = D20, "tops" = 20
   // commands
   if(/\bnew game\b/.test(t)) return {cmd:'newgame'};
   if(/\b(play again|rematch|restart)\b/.test(t)) return {cmd:'again'};
   if(/\b(next|next player|next up|done)\b/.test(t)) return {cmd:'next'};
   if(/\b(undo|scratch that|take it back)\b/.test(t)) return {cmd:'undo'};
   if(/\b(miss|missed|no score|nothing)\b/.test(t)) return {dart:{num:0,mult:0,points:0,label:'MISS',voice:true}};
+  // optional multiplier words — "triple twenty", "double one"
+  let mult=1;
+  if(/\b(triple|treble)\b/.test(t)) mult=3; else if(/\bdouble\b/.test(t)) mult=2;
   // bull (optional convenience)
   const outer=/\b(outer bull|single bull)\b/.test(t);
   const bull=/\b(bull|bulls eye|bullseye)\b/.test(t);
@@ -1225,6 +1229,7 @@ function parseSpeech(raw){
   if(n===0) return {dart:{num:0,mult:0,points:0,label:'MISS',voice:true}};
   if(n===50) return {dart:{num:25,mult:2,points:50,label:'Bull',voice:true}};
   if(n===25) return {dart:{num:25,mult:1,points:25,label:'25',voice:true}};
+  if(mult>1 && n>=1 && n<=20) return {dart:{num:n,mult,points:n*mult,label:(mult===3?'T':'D')+n,voice:true}};  // "triple 1", "double 16"
   if(n>=1 && n<=20) return {dart:{num:n,mult:1,points:n,label:''+n,voice:true}};       // a segment (marks in Cricket) and its own points in X01
   if(n>=21 && n<=180) return {dart:{num:0,mult:1,points:n,label:''+n,voice:true,raw:true}}; // pure points (X01)
   return null;
