@@ -412,7 +412,7 @@ function defaultSetup(){
   const pref=load(LS_PREF)||{};
   return {
     type:'x01',
-    players:(pref.players&&pref.players.length?pref.players.slice():['Player 1','Player 2']),
+    players:(pref.players&&pref.players.length?pref.players.map(n=>({name:n})):[{name:'Player 1'},{name:'Player 2'}]),
     x01:{ start:501, doubleIn:false, outRule:'double' },
     cricket:{ variant:'standard' },
     training:{ mode:'clock', clockRequire:'any', countupRounds:8, shanghaiRounds:7 }
@@ -440,8 +440,9 @@ function renderSetup(){
       <div class="players-list" id="playersList"></div>
       <div class="row">
         <button class="small" id="addPlayer">+ Add player</button>
-        <span class="hint">1&ndash;8 players (1 = solo practice). Order top to bottom is throw order.</span>
+        <button class="small" id="addCpu">🤖 Add computer</button>
       </div>
+      <div class="hint" style="margin-top:8px">1&ndash;8 players. Order top to bottom is throw order. Computer level: <b>1</b> = never thrown a dart, <b>20</b> = pro (Luke Littler).</div>
     </div>
 
     <div class="card" id="optCard"></div>
@@ -453,10 +454,11 @@ function renderSetup(){
 
   // players
   const pl=document.getElementById('playersList');
-  pl.innerHTML=c.players.map((n,i)=>`
+  pl.innerHTML=c.players.map((p,i)=>`
     <div class="player-row">
-      <span class="idx">${i+1}</span>
-      <input type="text" data-pi="${i}" value="${escapeHtml(n)}" placeholder="Name">
+      <span class="idx">${p.cpu?'🤖':(i+1)}</span>
+      <input type="text" data-pi="${i}" value="${escapeHtml(p.name)}" placeholder="Name">
+      ${p.cpu?`<select data-lvl="${i}" title="Difficulty 1-20">${Array.from({length:20},(_,k)=>k+1).map(l=>`<option value="${l}" ${p.level===l?'selected':''}>Lv ${l}</option>`).join('')}</select>`:''}
       <button class="small danger" data-del="${i}" ${c.players.length<=1?'disabled':''}>✕</button>
     </div>`).join('');
 
@@ -467,10 +469,14 @@ function renderSetup(){
     const f=b.getAttribute('data-seg'); const v=b.getAttribute('data-val');
     if(f==='type'){ c.type=v; renderSetup(); }
   });
-  pl.querySelectorAll('input[data-pi]').forEach(inp=>inp.oninput=()=>{ c.players[+inp.getAttribute('data-pi')]=inp.value; });
+  pl.querySelectorAll('input[data-pi]').forEach(inp=>inp.oninput=()=>{ c.players[+inp.getAttribute('data-pi')].name=inp.value; });
+  pl.querySelectorAll('select[data-lvl]').forEach(sel=>sel.onchange=()=>{ c.players[+sel.getAttribute('data-lvl')].level=+sel.value; });
   pl.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ c.players.splice(+b.getAttribute('data-del'),1); renderSetup(); });
   document.getElementById('addPlayer').onclick=()=>{
-    if(c.players.length<8){ c.players.push('Player '+(c.players.length+1)); renderSetup(); }
+    if(c.players.length<8){ c.players.push({name:'Player '+(c.players.length+1)}); renderSetup(); }
+  };
+  document.getElementById('addCpu').onclick=()=>{
+    if(c.players.length<8){ const n=c.players.filter(p=>p.cpu).length+1; c.players.push({name:'Computer'+(n>1?' '+n:''), cpu:true, level:10}); renderSetup(); }
   };
   document.getElementById('startBtn').onclick=startGame;
 }
@@ -552,56 +558,57 @@ function renderOptCard(){
 /* ============================ Start / build game ============================ */
 function startGame(){
   const c=setupCfg;
-  const names=c.players.map((n,i)=>(n&&n.trim())?n.trim():('Player '+(i+1)));
-  save(LS_PREF,{players:names});
-  if(c.type==='x01') game=newX01(names,c.x01);
-  else if(c.type==='cricket') game=newCricket(names,c.cricket);
-  else               game=newTraining(names,c.training);
+  const defs=c.players.map((p,i)=>({ name:(p.name&&p.name.trim())?p.name.trim():('Player '+(i+1)),
+    cpu:!!p.cpu, level:p.level||10 }));
+  save(LS_PREF,{players:defs.filter(d=>!d.cpu).map(d=>d.name)});
+  if(c.type==='x01') game=newX01(defs,c.x01);
+  else if(c.type==='cricket') game=newCricket(defs,c.cricket);
+  else               game=newTraining(defs,c.training);
   undoStack=[];
   state.screen='game';
   persist();
   enterGame();
 }
-function newX01(names,opt){
+function pbase(d){ return { name:d.name, cpu:!!d.cpu, level:d.level||10 }; }
+function newX01(defs,opt){
   const g={ type:'x01', config:{...opt}, current:0, dartsThisTurn:0,
     turnDarts:[], turnStartRem:opt.start, awaitingNext:false, finished:false, winner:null,
     lastEvent:null, markers:[], ts:Date.now(),
-    players:names.map(n=>({ name:n, remaining:opt.start, opened:!opt.doubleIn,
+    players:defs.map(d=>({ ...pbase(d), remaining:opt.start, opened:!opt.doubleIn,
       darts:0, points:0, turnPoints:0, checkouts:0, checkoutChances:0, highCheckout:0 }))
   };
-  g.players[0]._chanceCounted=false;
   markChanceX01(g);
   return g;
 }
-function newCricket(names,opt){
+function newCricket(defs,opt){
   const g={ type:'cricket', config:{...opt}, current:0, dartsThisTurn:0,
     turnDarts:[], awaitingNext:false, finished:false, winner:null,
     lastEvent:null, markers:[], ts:Date.now(),
-    players:names.map(n=>{ const marks={}; CRK_NUMS.forEach(x=>marks[x]=0);
-      return { name:n, marks, score:0, darts:0, totalMarks:0 }; })
+    players:defs.map(d=>{ const marks={}; CRK_NUMS.forEach(x=>marks[x]=0);
+      return { ...pbase(d), marks, score:0, darts:0, totalMarks:0 }; })
   };
   return g;
 }
-function newTraining(names,tcfg){
+function newTraining(defs,tcfg){
   const mode=tcfg.mode;
   const g={ type:'training', mode, config:{...tcfg}, current:0, dartsThisTurn:0,
     turnDarts:[], awaitingNext:false, finished:false, winner:null, lastEvent:null,
     markers:[], ts:Date.now(), round:1, roundBased:false, maxRounds:0 };
   if(mode==='clock'){
     const seq=[]; for(let n=1;n<=20;n++) seq.push(n); seq.push(25);
-    g.players=names.map(n=>({ name:n, seq:seq.slice(), idx:0, darts:0, done:false }));
+    g.players=defs.map(d=>({ ...pbase(d), seq:seq.slice(), idx:0, darts:0, done:false }));
   }else if(mode==='countup'){
     g.roundBased=true; g.maxRounds=tcfg.countupRounds||8;
-    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+    g.players=defs.map(d=>({ ...pbase(d), score:0, darts:0 }));
   }else if(mode==='shanghai'){
     g.roundBased=true; g.maxRounds=tcfg.shanghaiRounds||7;
-    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+    g.players=defs.map(d=>({ ...pbase(d), score:0, darts:0 }));
   }else if(mode==='bob27'){
     g.roundBased=true; g.maxRounds=21;
-    g.players=names.map(n=>({ name:n, score:27, darts:0, out:false }));
+    g.players=defs.map(d=>({ ...pbase(d), score:27, darts:0, out:false }));
   }else if(mode==='halveit'){
     g.targets=HALVE_TARGETS.slice(); g.roundBased=true; g.maxRounds=g.targets.length;
-    g.players=names.map(n=>({ name:n, score:0, darts:0 }));
+    g.players=defs.map(d=>({ ...pbase(d), score:0, darts:0 }));
   }
   return g;
 }
@@ -630,7 +637,7 @@ function enterGame(){
   updateUI();
 }
 function onBoardClick(e){
-  if(!game||game.finished||game.awaitingNext) return;
+  if(!game||game.finished||game.awaitingNext||isCpuTurn()) return;
   const svg=document.getElementById('board');
   const rect=svg.getBoundingClientRect();
   const px=(e.clientX-rect.left)/rect.width*500;
@@ -663,9 +670,9 @@ function endTurnFlags(){ game.awaitingNext=true; }
 function applyX01(hit){
   const p=game.players[game.current];
   p.darts++;
-  // double-in gate
+  // double-in gate. A spoken score can't prove it was a double, so voice trusts you.
   if(game.config.doubleIn && !p.opened){
-    if(hit.mult===2){ p.opened=true; }
+    if(hit.voice ? hit.points>0 : hit.mult===2){ p.opened=true; }
     else { sndMiss(); if(game.dartsThisTurn>=3) endTurnFlags(); return; }
   }
   const before=p.remaining;
@@ -674,11 +681,13 @@ function applyX01(hit){
   let bust=false, win=false;
   if(after<0) bust=true;
   else if(after===0){
-    if(rule==='double') win=(hit.mult===2);
+    // voice entries can't convey the finishing segment, so trust the caller
+    if(hit.voice) win=true;
+    else if(rule==='double') win=(hit.mult===2);
     else if(rule==='master') win=(hit.mult===2||hit.mult===3);
     else win=true;
     if(!win) bust=true;
-  } else if(after===1 && rule!=='straight') bust=true;
+  } else if(after===1 && rule!=='straight' && !hit.voice) bust=true;
 
   if(bust){
     p.points-=p.turnPoints; p.turnPoints=0;
@@ -877,6 +886,7 @@ function updateUI(){
   });
 
   if(isHosting()) netPushState();
+  aiScheduleIfNeeded();
 }
 function renderMarkers(){
   const g=document.getElementById('markers');
@@ -906,14 +916,16 @@ function renderTurnbar(){
   }else if(game.lastEvent&&game.lastEvent.type==='bust'){
     banner=`<div class="banner bust">BUST — no score this turn</div>`;
   }else if(game.awaitingNext){
-    banner=`<div class="banner info">${(listening&&!isJoiner())?'Turn complete — advancing…':'Turn complete — press “Next player”.'}</div>`;
+    banner=`<div class="banner info">${isCpuTurn()?'🤖 '+escapeHtml(p.name)+'’s turn done…':(listening&&!isJoiner())?'Turn complete — advancing…':'Turn complete — press “Next player”.'}</div>`;
+  }else if(isCpuTurn()){
+    banner=`<div class="banner info">🤖 ${escapeHtml(p.name)} is throwing… (level ${p.level})</div>`;
   }
   const notStarted = !game.finished && game.dartsThisTurn===0 && game.players.length>1 && !game.players.some(pp=>pp.darts>0);
   const setHint = notStarted ? `<div class="turn-total" style="color:var(--muted)">Tap a player below to choose who throws first</div>` : '';
   return `
   <div class="turnbar">
     <div class="who">
-      <span class="name">${escapeHtml(p.name)}</span>
+      <span class="name">${p.cpu?'🤖 ':''}${escapeHtml(p.name)}</span>
       <span class="tagpill">${gameLabel()}</span>
     </div>
     <div class="darts">${slots}</div>
@@ -1035,10 +1047,10 @@ function renderTraining(){
 }
 
 function rematch(){
-  const names=game.players.map(p=>p.name);
-  if(game.type==='x01') game=newX01(names,game.config);
-  else if(game.type==='cricket') game=newCricket(names,game.config);
-  else                  game=newTraining(names,game.config);
+  const defs=game.players.map(p=>({name:p.name, cpu:p.cpu, level:p.level}));
+  if(game.type==='x01') game=newX01(defs,game.config);
+  else if(game.type==='cricket') game=newCricket(defs,game.config);
+  else                  game=newTraining(defs,game.config);
   undoStack=[];
   persist(); enterGame();
 }
@@ -1176,32 +1188,45 @@ function announceNewTurn(){
   say(game.type==='x01' ? (p.name+', '+p.remaining+' remaining') : (p.name+' to throw'));
 }
 
-const SPK_NUM={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
-  eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
-function wordNum(t){
-  const dm=t.match(/\b(\d{1,2})\b/); if(dm){ const n=+dm[1]; if(n>=0&&n<=20) return n; }
-  const keys=Object.keys(SPK_NUM).sort((a,b)=>b.length-a.length);
-  for(const k of keys){ if(new RegExp('\\b'+k+'\\b').test(t)) return SPK_NUM[k]; }
-  return null;
+// Voice = numbers + a few commands, nothing else. Any spoken number is heard as
+// your score (filler words are ignored); no need to say "triple"/"double".
+const SPK_UNITS={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
+  eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+const SPK_TENS={twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+function parseNumberWords(t){
+  const dm=t.match(/\b(\d{1,3})\b/); if(dm) return +dm[1];   // digits win if present
+  let total=0, cur=0, found=false;
+  for(const w of t.split(' ')){
+    if(SPK_UNITS[w]!=null){ cur+=SPK_UNITS[w]; found=true; }
+    else if(SPK_TENS[w]!=null){ cur+=SPK_TENS[w]; found=true; }
+    else if(w==='hundred'){ cur=(cur||1)*100; found=true; }
+    // "and" and every other word are ignored
+  }
+  total+=cur;
+  return found ? total : null;
 }
-function mkDart(num,mult,label){ return {dart:{num,mult,points:num*mult,label}}; }
 function parseSpeech(raw){
   let t=raw.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
   if(!t) return null;
-  t=t.replace(/\btops?\b/g,'20');            // darts slang: "double top" = D20, "tops" = 20
+  // commands
   if(/\bnew game\b/.test(t)) return {cmd:'newgame'};
-  if(/\b(play again|rematch)\b/.test(t)) return {cmd:'again'};
+  if(/\b(play again|rematch|restart)\b/.test(t)) return {cmd:'again'};
   if(/\b(next|next player|next up|done)\b/.test(t)) return {cmd:'next'};
   if(/\b(undo|scratch that|take it back)\b/.test(t)) return {cmd:'undo'};
-  if(/\b(miss|missed|no score|nothing)\b/.test(t)) return {dart:{num:0,mult:0,points:0,label:'MISS'}};
-  const outer=/\b(outer bull|single bull|twenty five|25)\b/.test(t);
-  const bull=/\b(bull|bulls eye|bullseye|double bull|fifty|50)\b/.test(t);
-  if(bull && !outer) return mkDart(25,2,'Bull');
-  if(outer) return mkDart(25,1,'25');
-  let mult=1;
-  if(/\b(triple|treble)\b/.test(t)) mult=3; else if(/\bdouble\b/.test(t)) mult=2;
-  const n=wordNum(t);
-  if(n>=1 && n<=20) return mkDart(n,mult,(mult===3?'T':mult===2?'D':'')+n);
+  if(/\b(miss|missed|no score|nothing)\b/.test(t)) return {dart:{num:0,mult:0,points:0,label:'MISS',voice:true}};
+  // bull (optional convenience)
+  const outer=/\b(outer bull|single bull)\b/.test(t);
+  const bull=/\b(bull|bulls eye|bullseye)\b/.test(t);
+  if(bull && !outer) return {dart:{num:25,mult:2,points:50,label:'Bull',voice:true}};
+  if(outer) return {dart:{num:25,mult:1,points:25,label:'25',voice:true}};
+  // numbers — the main event
+  const n=parseNumberWords(t);
+  if(n==null) return null;
+  if(n===0) return {dart:{num:0,mult:0,points:0,label:'MISS',voice:true}};
+  if(n===50) return {dart:{num:25,mult:2,points:50,label:'Bull',voice:true}};
+  if(n===25) return {dart:{num:25,mult:1,points:25,label:'25',voice:true}};
+  if(n>=1 && n<=20) return {dart:{num:n,mult:1,points:n,label:''+n,voice:true}};       // a segment (marks in Cricket) and its own points in X01
+  if(n>=21 && n<=180) return {dart:{num:0,mult:1,points:n,label:''+n,voice:true,raw:true}}; // pure points (X01)
   return null;
 }
 let recog=null, listening=false;
@@ -1250,7 +1275,7 @@ document.getElementById('chkSpeak').onchange=e=>{ state.speak=e.target.checked;
 /* ============================ Online session (host / join) ============================ */
 function isJoiner(){ return net.role==='join' && net.ws && net.ws.readyState===1; }
 function isHosting(){ return net.role==='host' && net.ws && net.ws.readyState===1; }
-function doDart(hit){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'dart',payload:hit}); else registerDart(hit); }
+function doDart(hit){ if(isCpuTurn()) return; if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'dart',payload:hit}); else registerDart(hit); }
 function doNext(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'next'}); else nextPlayer(); }
 function doUndo(){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'undo'}); else undo(); }
 function doSetCurrent(i){ if(isJoiner()) netSend({type:'action',clientId:net.id,kind:'setcurrent',payload:i}); else setCurrent(i); }
@@ -1270,8 +1295,75 @@ function cancelAutoAdv(){ if(autoAdvTimer){ clearTimeout(autoAdvTimer); autoAdvT
 function maybeAutoAdvance(){
   cancelAutoAdv();
   if(!listening || isJoiner() || !game || game.finished || !game.awaitingNext) return;
+  if(isCpuTurn()) return;               // the AI driver advances its own turns
   autoAdvTimer=setTimeout(()=>{ autoAdvTimer=null;
-    if(game && game.awaitingNext && !game.finished) nextPlayer(); }, 2600);
+    if(game && game.awaitingNext && !game.finished && !isCpuTurn()) nextPlayer(); }, 2600);
+}
+
+/* ============================ Computer opponent (levels 1-20) ============================ */
+function isCpuTurn(){ return !!(game && game.players[game.current] && game.players[game.current].cpu); }
+// standard board geometry in mm, used to simulate where a thrown dart lands
+const AI_R={dbull:6.35,sbull:15.9,tin:99,tout:107,din:162,dout:170};
+function aiPointAt(num,r){ const i=SEQ.indexOf(num); const a=(-90+18*i)*Math.PI/180; return [r*Math.cos(a), r*Math.sin(a)]; }
+function aiScoreAt(x,y){
+  const r=Math.hypot(x,y);
+  if(r<=AI_R.dbull) return {num:25,mult:2,points:50,label:'Bull'};
+  if(r<=AI_R.sbull) return {num:25,mult:1,points:25,label:'25'};
+  if(r>AI_R.dout)   return {num:0,mult:0,points:0,label:'MISS'};
+  let ang=Math.atan2(y,x)*180/Math.PI;
+  const n=SEQ[(((Math.round((ang+90)/18)%20)+20)%20)];
+  if(r<=AI_R.tin)  return {num:n,mult:1,points:n,label:''+n};
+  if(r<=AI_R.tout) return {num:n,mult:3,points:n*3,label:'T'+n};
+  if(r<=AI_R.din)  return {num:n,mult:1,points:n,label:''+n};
+  return {num:n,mult:2,points:n*2,label:'D'+n};
+}
+// scatter (mm std dev): level 1 ≈ 105mm (all over), level 20 ≈ 6mm (near-pro)
+function aiSigma(level){ const t=(Math.max(1,Math.min(20,level))-1)/19; return 105*Math.pow(6/105,t); }
+function gauss(){ let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function aiAimLabel(label){
+  if(label==='Bull'||label==='25') return [0,0];
+  const m=label.match(/^([TD]?)(\d+)$/); if(!m) return aiPointAt(20,103);
+  const mult=m[1]==='T'?3:m[1]==='D'?2:1, num=+m[2];
+  return aiPointAt(num, mult===3?103:mult===2?166:57);
+}
+function aiChooseAim(pl){
+  const g=game;
+  if(g.type==='x01'){
+    const rem=pl.remaining;
+    if(pl.level>=5 && rem<=170){ const co=checkout(rem, Math.max(1,3-g.dartsThisTurn), g.config.outRule); if(co) return aiAimLabel(co[0]); }
+    return aiAimLabel('T20');
+  }
+  if(g.type==='cricket'){
+    const nums=[20,19,18,17,16,15,25];
+    let t=nums.find(n=>pl.marks[n]<3);
+    if(t==null) t=nums.find(n=>game.players.some((o,i)=>i!==g.current&&o.marks[n]<3));
+    if(t==null) t=20;
+    return t===25?[0,0]:aiAimLabel('T'+t);
+  }
+  if(g.mode==='clock'){ const t=pl.seq[pl.idx]; return t===25?[0,0]:aiAimLabel(''+t); }
+  if(g.mode==='countup') return aiAimLabel('T20');
+  if(g.mode==='shanghai') return aiAimLabel('T'+g.round);
+  if(g.mode==='bob27') return g.round>20?[0,0]:aiAimLabel('D'+g.round);
+  if(g.mode==='halveit'){ const t=g.targets[g.round-1];
+    if(t==='B')return[0,0]; if(t==='D')return aiAimLabel('D20'); if(t==='T')return aiAimLabel('T20'); return aiAimLabel('T'+t); }
+  return aiAimLabel('T20');
+}
+function aiThrow(){
+  const pl=game.players[game.current], aim=aiChooseAim(pl), s=aiSigma(pl.level);
+  return aiScoreAt(aim[0]+gauss()*s, aim[1]+gauss()*s);
+}
+let aiRunning=false;
+function aiScheduleIfNeeded(){
+  if(aiRunning || isJoiner() || !game || game.finished || !isCpuTurn()) return;
+  aiRunning=true;
+  const delay = game.awaitingNext ? 1200 : 850;
+  setTimeout(()=>{
+    aiRunning=false;
+    if(!game || game.finished || !isCpuTurn()) return;
+    if(game.awaitingNext) nextPlayer();
+    else registerDart(aiThrow());
+  }, delay);
 }
 
 function netSend(o){ if(net.ws && net.ws.readyState===1) net.ws.send(JSON.stringify(o)); }
