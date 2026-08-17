@@ -261,6 +261,23 @@
   </div>
 </div>
 
+<div class="modal" id="editModal">
+  <div class="box" style="max-width:380px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0;font-size:17px">Correct this dart</h2>
+      <button class="small" onclick="closeEdit()">Cancel</button>
+    </div>
+    <p class="hint" style="margin:10px 0 8px">Type the value: <b>20</b>, <b>triple 20</b>, <b>double 16</b>, <b>bull</b>, <b>25</b>, or <b>miss</b>.</p>
+    <input type="text" id="editInput" style="width:100%;font-size:18px" placeholder="e.g. triple 20" autocomplete="off">
+    <div class="row" style="margin-top:10px;gap:6px">
+      <button class="small" data-quick="miss">Miss</button>
+      <button class="small" data-quick="25">25</button>
+      <button class="small" data-quick="bull">Bull 50</button>
+    </div>
+    <div style="margin-top:14px"><button class="primary" id="editSave" style="width:100%">Save</button></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -1307,12 +1324,20 @@ function setCurrent(i){
 /* Correcting a dart already thrown this turn: rewind to the start of the turn and
    replay the darts with the chosen one swapped out. */
 let replaying=false;
+let editIndex=null;
 function doEditDart(i){
   if(!game || game.finished || isCpuTurn()) return;
   const d=game.turnDarts[i]; if(!d) return;
-  const cur=dartLabel(d);
-  const txt=prompt('Fix this dart — type the value (e.g. 20, triple 20, double 16, bull, miss):', cur==='—'?'':cur);
-  if(txt==null) return;
+  editIndex=i;
+  const inp=document.getElementById('editInput');
+  const cur=dartLabel(d); inp.value=(cur==='—'?'':cur);
+  document.getElementById('editModal').classList.add('open');
+  setTimeout(()=>{ inp.focus(); inp.select(); },40);
+}
+function closeEdit(){ document.getElementById('editModal').classList.remove('open'); editIndex=null; }
+function commitEdit(txt){
+  if(editIndex==null) return;
+  const i=editIndex; closeEdit();
   if(isJoiner()){ netSend({type:'action',clientId:net.id,kind:'edit',index:i,text:txt}); return; }
   applyEdit(i,txt);
 }
@@ -1471,6 +1496,10 @@ function startJoinScreen(sid){
 document.getElementById('btnOnline').onclick=()=>{ document.getElementById('onlineModal').classList.add('open'); renderOnline(); };
 document.getElementById('onlineModal').onclick=e=>{ if(e.target.id==='onlineModal') closeOnline(); };
 function closeOnline(){ document.getElementById('onlineModal').classList.remove('open'); }
+document.getElementById('editSave').onclick=()=>commitEdit(document.getElementById('editInput').value);
+document.getElementById('editInput').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); commitEdit(e.target.value); } });
+document.getElementById('editModal').querySelectorAll('[data-quick]').forEach(b=>b.onclick=()=>commitEdit(b.getAttribute('data-quick')));
+document.getElementById('editModal').onclick=e=>{ if(e.target.id==='editModal') closeEdit(); };
 function renderNetBadge(){ const b=document.getElementById('btnOnline'); if(!b) return;
   const live=isHosting()||isJoiner();
   b.classList.toggle('live',live);
