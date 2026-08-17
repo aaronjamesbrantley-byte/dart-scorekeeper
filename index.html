@@ -69,7 +69,9 @@
     display:flex; flex-direction:column; gap:8px}
   .board-area{flex:1 1 auto; min-height:0; container-type:size; display:flex; align-items:center; justify-content:center}
   svg.board{width:min(100cqw,100cqh); height:min(100cqw,100cqh); display:block; touch-action:none; cursor:crosshair}
-  .board-foot{flex:0 0 auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center}
+  .board-foot{flex:0 0 auto; display:flex; gap:8px; flex-wrap:wrap; align-items:stretch; justify-content:center}
+  .board-foot button{padding:14px 18px; font-size:15px; min-height:52px}
+  .board-foot #btnNext{flex:1 1 200px; min-width:180px; font-size:17px; font-weight:700}
   .side{flex:0 0 clamp(280px,34%,400px); min-width:0; min-height:0; overflow-y:auto; display:grid; gap:14px; align-content:start}
   @media (orientation:portrait){
     .game{flex-direction:column}
@@ -92,7 +94,8 @@
     flex:1; text-align:center; padding:10px 6px; border:1px dashed var(--line); border-radius:10px;
     background:var(--panel2); font-weight:600; min-height:44px; display:flex; align-items:center; justify-content:center;
   }
-  .dart-slot.filled{border-style:solid; border-color:var(--accent)}
+  .dart-slot.filled{border-style:solid; border-color:var(--accent); cursor:pointer}
+  .dart-slot.filled:hover{background:var(--panel)}
   .turn-total{font-size:13px; color:var(--muted); text-align:center}
   .banner{padding:8px 12px; border-radius:10px; font-weight:700; text-align:center}
   .banner.bust{background:rgba(198,40,40,.18); color:#ff9a9a; border:1px solid var(--bad)}
@@ -884,6 +887,10 @@ function updateUI(){
     el.style.cursor = canSet ? 'pointer' : '';
     el.onclick = ()=>{ if(!game.finished && game.dartsThisTurn===0) doSetCurrent(+el.getAttribute('data-setcur')); };
   });
+  // tap a thrown dart to correct it
+  side.querySelectorAll('[data-slot]').forEach(el=>{
+    el.onclick = ()=>{ if(!isCpuTurn()) doEditDart(+el.getAttribute('data-slot')); };
+  });
 
   if(isHosting()) netPushState();
   aiScheduleIfNeeded();
@@ -899,7 +906,7 @@ function renderTurnbar(){
   const p=game.players[game.current];
   const slots=[0,1,2].map(i=>{
     const d=game.turnDarts[i];
-    return `<div class="dart-slot ${d?'filled':''}">${d?dartLabel(d):'&nbsp;'}</div>`;
+    return `<div class="dart-slot ${d?'filled':''}"${d?` data-slot="${i}" title="Tap to correct this dart"`:''}>${d?dartLabel(d):'&nbsp;'}</div>`;
   }).join('');
   const turnTotal=game.turnDarts.reduce((s,d)=>s+(d.points||(d.mult?d.num*d.mult:0)),0);
   let banner='';
@@ -1173,7 +1180,7 @@ function winnerPhrase(){ const w=game.players[game.winner];
   return w.name+' wins'; }
 function turnEndPhrase(){ if(game.type==='x01') return game.players[game.current].remaining+' remaining'; return ''; }
 function announceDart(){
-  if(!speakOn()||!game) return;
+  if(!speakOn()||!game||replaying) return;
   const d=game.turnDarts[game.turnDarts.length-1];
   let p = d? spokenDart(d) : '';
   if(game.finished){ p=(p?p+'. ':'')+winnerPhrase(); }
@@ -1193,6 +1200,8 @@ function announceNewTurn(){
 const SPK_UNITS={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
   eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
 const SPK_TENS={twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+// every point value a SINGLE dart can actually make (singles 1-20, doubles, trebles, bulls, miss)
+const VALID_DART=(()=>{ const s=new Set([0,25,50]); for(let i=1;i<=20;i++){ s.add(i); s.add(i*2); s.add(i*3); } return s; })();
 function parseNumberWords(t){
   const dm=t.match(/\b(\d{1,3})\b/); if(dm) return +dm[1];   // digits win if present
   let total=0, cur=0, found=false;
@@ -1231,8 +1240,9 @@ function parseSpeech(raw){
   if(n===25) return {dart:{num:25,mult:1,points:25,label:'25',voice:true}};
   if(mult>1 && n>=1 && n<=20) return {dart:{num:n,mult,points:n*mult,label:(mult===3?'T':'D')+n,voice:true}};  // "triple 1", "double 16"
   if(n>=1 && n<=20) return {dart:{num:n,mult:1,points:n,label:''+n,voice:true}};       // a segment (marks in Cricket) and its own points in X01
-  if(n>=21 && n<=180) return {dart:{num:0,mult:1,points:n,label:''+n,voice:true,raw:true}}; // pure points (X01)
-  return null;
+  // a plain number over 20: only accept values a single dart can really make (reject 55, 102, etc.)
+  if(VALID_DART.has(n)) return {dart:{num:0,mult:1,points:n,label:''+n,voice:true,raw:true}};
+  return {invalid:n};
 }
 let recog=null, listening=false;
 function initRecog(){
@@ -1255,7 +1265,7 @@ function updateMicBtn(){ const b=document.getElementById('btnMic'); if(!b) retur
   b.classList.toggle('on',listening); b.textContent=listening?'🎤 Listening…':'🎤 Voice'; }
 function handleSpeech(tx){
   const res=parseSpeech(tx); voiceHeard(tx,res);
-  if(!res) return;
+  if(!res || res.invalid) return;   // impossible score (e.g. 55, 102) — ignored; chip shows why
   if(res.cmd==='next'){ doNext(); return; }
   if(res.cmd==='undo'){ doUndo(); say('undo'); return; }
   if(res.cmd==='newgame'){ if(isJoiner()) return; localStorage.removeItem(LS_GAME); game=null; undoStack=[]; state.screen='setup'; setupCfg=null; renderSetup(); say('new game'); return; }
@@ -1267,6 +1277,7 @@ function voiceHeard(tx,res){
   let out;
   if(res && res.cmd) out=({next:'next player',undo:'undo',newgame:'new game',again:'play again'})[res.cmd]||res.cmd;
   else if(res && res.dart) out=res.dart.label==='MISS'?'miss':spokenDart(res.dart);
+  else if(res && res.invalid!=null) out='<span class="mut">'+res.invalid+' isn’t a real dart score</span>';
   else out='<span class="mut">not understood</span>';
   c.innerHTML='🎤 “'+escapeHtml(tx.trim())+'” → <b>'+out+'</b>';
   c.style.display='block';
@@ -1293,13 +1304,43 @@ function setCurrent(i){
   persist(); updateUI();
 }
 
+/* Correcting a dart already thrown this turn: rewind to the start of the turn and
+   replay the darts with the chosen one swapped out. */
+let replaying=false;
+function doEditDart(i){
+  if(!game || game.finished || isCpuTurn()) return;
+  const d=game.turnDarts[i]; if(!d) return;
+  const cur=dartLabel(d);
+  const txt=prompt('Fix this dart — type the value (e.g. 20, triple 20, double 16, bull, miss):', cur==='—'?'':cur);
+  if(txt==null) return;
+  if(isJoiner()){ netSend({type:'action',clientId:net.id,kind:'edit',index:i,text:txt}); return; }
+  applyEdit(i,txt);
+}
+function applyEdit(i,txt){
+  const res=parseSpeech(txt);
+  if(!res || !res.dart){ voiceStatus((''+txt).trim()+' isn’t a valid dart — not changed','err'); return; }
+  editDart(i,res.dart);
+}
+function editDart(index,newHit){
+  if(!game || game.finished) return;
+  const darts=game.turnDarts.slice();
+  if(index<0 || index>=darts.length) return;
+  darts[index]=newHit;
+  const k=game.dartsThisTurn;
+  replaying=true;
+  for(let j=0;j<k;j++){ if(undoStack.length) game=undoStack.pop(); }   // back to start of the turn
+  for(const dd of darts){ if(game.finished) break; registerDart(dd); }  // replay with the fix
+  replaying=false;
+  persist(); updateUI();
+}
+
 /* In mic mode, roll to the next player automatically once a turn is complete
    (a short delay lets the spoken score finish and leaves room to say "undo"). */
 let autoAdvTimer=null;
 function cancelAutoAdv(){ if(autoAdvTimer){ clearTimeout(autoAdvTimer); autoAdvTimer=null; } }
 function maybeAutoAdvance(){
   cancelAutoAdv();
-  if(!listening || isJoiner() || !game || game.finished || !game.awaitingNext) return;
+  if(replaying || !listening || isJoiner() || !game || game.finished || !game.awaitingNext) return;
   if(isCpuTurn()) return;               // the AI driver advances its own turns
   autoAdvTimer=setTimeout(()=>{ autoAdvTimer=null;
     if(game && game.awaitingNext && !game.finished && !isCpuTurn()) nextPlayer(); }, 2600);
@@ -1360,7 +1401,7 @@ function aiThrow(){
 }
 let aiRunning=false;
 function aiScheduleIfNeeded(){
-  if(aiRunning || isJoiner() || !game || game.finished || !isCpuTurn()) return;
+  if(replaying || aiRunning || isJoiner() || !game || game.finished || !isCpuTurn()) return;
   aiRunning=true;
   const delay = game.awaitingNext ? 1200 : 850;
   setTimeout(()=>{
@@ -1372,7 +1413,7 @@ function aiScheduleIfNeeded(){
 }
 
 function netSend(o){ if(net.ws && net.ws.readyState===1) net.ws.send(JSON.stringify(o)); }
-function netPushState(){ if(isHosting() && game){ game._canUndo=undoStack.length>0; netSend({type:'state', state:game}); } }
+function netPushState(){ if(replaying) return; if(isHosting() && game){ game._canUndo=undoStack.length>0; netSend({type:'state', state:game}); } }
 function netClose(){ if(net.ws){ try{ net.ws.onclose=null; net.ws.close(); }catch(e){} } net.ws=null; }
 function sessionLink(sid){ return location.origin+location.pathname+'#s='+sid; }
 
@@ -1406,6 +1447,7 @@ function applyRemoteAction(m){
   else if(m.kind==='next'){ nextPlayer(); }
   else if(m.kind==='undo'){ undo(); }
   else if(m.kind==='setcurrent'){ setCurrent(m.payload); }
+  else if(m.kind==='edit'){ applyEdit(m.index, m.text); }
 }
 function hostSession(){
   if(!game){ renderOnline('needgame'); return; }
